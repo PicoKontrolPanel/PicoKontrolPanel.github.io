@@ -1,0 +1,6 @@
+VERSION,1
+ownerID,ce2b778bbe7c4ad0a3e77ad20abef87c
+ownerName,Christian
+iconID,7
+canOthersConnect,1
+canOthersEdit,0

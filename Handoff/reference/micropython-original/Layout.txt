@@ -1,0 +1,9 @@
+#VERSION,1
+button,STOP,5,15,4,5,0
+button,FREM,5,20,4,5,0
+button,TILBAGE,5,10,4,5,0
+button,HOJRE,9,15,4,5,0
+button,VENSTRE,1,15,4,5,0
+button,TURBO,1,29,4,5,0
+button,FOLG LINJE,9,29,4,5,0
+button,CALIBRATE,5,29,4,5,0
