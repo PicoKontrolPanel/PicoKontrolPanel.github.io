@@ -20,7 +20,8 @@ Static React web app for controlling Raspberry Pi Pico W devices over Web Blueto
 This project is configured for static hosting on GitHub Pages.
 
 - The Vite `base` is set to `./` so the built files work from the repo pages URL.
-- Deploy the contents of `dist/` after running `npm run build`.
+- The repo includes a GitHub Actions workflow at `.github/workflows/pages.yml` that builds and deploys `dist/` on every push to `main`.
+- In the repository settings, set Pages to use `GitHub Actions` as the source.
 
 ## BLE contract
 
