@@ -1,0 +1,29 @@
+Go to (type in URL bar):
+brave://flags/ 
+
+
+
+Web Bluetooth API
+Enables the Web Bluetooth API, giving websites access to Bluetooth devices – Mac, Windows, Linux, ChromeOS, Android
+
+#brave-web-bluetooth-api
+
+- Enabled
+
+
+
+Use the new permissions backend for Web Bluetooth
+Enables the new permissions backend for Web Bluetooth. This will enable persistent storage of device permissions and Web Bluetooth features such as BluetoothDevice.watchAdvertisements() and Bluetooth.getDevices() – Mac, Windows, Linux, ChromeOS, Android
+
+#enable-web-bluetooth-new-permissions-backend
+
+ - Enabled
+
+
+
+Web Bluetooth confirm pairing support
+Enable confirm-only and confirm-pin pairing mode support for Web Bluetooth – Mac, Windows, Linux, ChromeOS
+
+#enable-web-bluetooth-confirm-pairing-support
+
+ - Default (Disabled)

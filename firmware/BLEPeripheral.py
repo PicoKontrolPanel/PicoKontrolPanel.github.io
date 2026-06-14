@@ -1,5 +1,6 @@
 import ubluetooth
 from micropython import const
+import struct
 
 SERVICE_UUID = ubluetooth.UUID('b8e06067-62ad-41ba-9231-206ae80ab551')
 WRITE_UUID = ubluetooth.UUID('f897177b-aee8-4767-8ecc-cc694fd5fce0')
@@ -42,11 +43,28 @@ class BLEPeripheral:
 
     def _advertise(self):
         name = 'PicoW-' + self.device_base_name
-        name_bytes = name.encode()
-        name_payload = bytearray([len(name_bytes) + 1, 0x09]) + name_bytes
-        adv_payload = bytearray([0x02, 0x01, 0x06]) + name_payload
-        self.ble.gap_advertise(100_000, adv_payload)
+        adv_payload = self._advertising_payload(services=[SERVICE_UUID])
+        resp_payload = self._advertising_payload(name=name)
+        self.ble.gap_advertise(100_000, adv_payload, resp_data=resp_payload)
         print('Advertising as:', name)
+
+    def _advertising_payload(self, name=None, services=None):
+        payload = bytearray()
+
+        def append_field(adv_type, value):
+            nonlocal payload
+            payload += struct.pack('BB', len(value) + 1, adv_type) + value
+
+        append_field(0x01, struct.pack('B', 0x06))
+
+        if name:
+            append_field(0x09, name.encode())
+
+        if services:
+            for uuid in services:
+                append_field(0x07, bytes(uuid))
+
+        return payload
 
     def _restart_advertising(self):
         try:
