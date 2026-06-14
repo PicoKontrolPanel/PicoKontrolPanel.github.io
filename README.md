@@ -41,4 +41,6 @@ The `firmware/` folder contains a tiny Pico W firmware pair for this proof of co
 - `firmware/BLEPeripheral.py`
 - `firmware/main.py`
 
+This version only exposes two button commands, `ON` and `OFF`, which turn the Pico W onboard LED on and off.
+
 Flash those files to the Pico W, then connect from Chrome on Android or Bluefy on iOS.

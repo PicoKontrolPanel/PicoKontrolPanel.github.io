@@ -73,7 +73,7 @@ class BLEPeripheral:
             self._restart_advertising()
 
         elif event == _IRQ_GATTS_WRITE:
-            conn_handle, attr_handle = data
+            _, attr_handle = data
             if attr_handle != self.handle_write:
                 return
 

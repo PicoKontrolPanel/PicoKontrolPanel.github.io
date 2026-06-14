@@ -16,26 +16,31 @@ def on_write(message):
     kind, payload = parts
 
     if kind == 'button':
-        led.value(1 - led.value())
-        print('Button:', payload)
-        ble.send('ok:' + payload + '\n')
-    elif kind == 'slider':
-        print('Slider:', payload)
-        ble.send('ok:' + payload + '\n')
+        if payload == 'ON':
+            led.on()
+            print('LED on')
+            ble.send('ok:ON\n')
+        elif payload == 'OFF':
+            led.off()
+            print('LED off')
+            ble.send('ok:OFF\n')
+        else:
+            print('Unknown button command:', payload)
     else:
         print('Unknown command type:', kind)
 
 
 def on_connect():
-    led.on()
+    print('BLE client connected')
 
 
 def on_disconnect():
     led.off()
+    print('BLE client disconnected')
 
 
 ble = BLEPeripheral(
-    device_base_name='Test',
+    device_base_name='LED',
     on_write=on_write,
     on_connect=on_connect,
     on_disconnect=on_disconnect,

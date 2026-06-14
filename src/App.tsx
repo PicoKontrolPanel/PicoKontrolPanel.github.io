@@ -9,7 +9,10 @@ import {
   sendButton,
 } from './ble';
 
-const COMMANDS = ['STOP', 'FREM', 'TILBAGE', 'VENSTRE', 'HOJRE'] as const;
+const COMMANDS = [
+  { label: 'LED ON', value: 'ON' },
+  { label: 'LED OFF', value: 'OFF' },
+] as const;
 
 function statusLabel(status: string) {
   switch (status) {
@@ -118,20 +121,20 @@ function App() {
 
         <section className="card">
           <div className="card-header">
-            <h2>Commands</h2>
-            <p>Big touch targets. The same names are understood by the Pico firmware.</p>
+            <h2>LED control</h2>
+            <p>These buttons only control the onboard Pico LED.</p>
           </div>
 
           <div className="command-grid">
-            {COMMANDS.map((name) => (
+            {COMMANDS.map(({ label, value }) => (
               <button
-                key={name}
+                key={value}
                 className="command-button"
                 type="button"
-                onClick={() => handleCommand(name)}
+                onClick={() => handleCommand(value)}
                 disabled={status !== 'connected'}
               >
-                {name}
+                {label}
               </button>
             ))}
           </div>
