@@ -15,9 +15,10 @@ _IRQ_CENTRAL_CONNECT    = const(1)
 _IRQ_CENTRAL_DISCONNECT = const(2)
 _IRQ_GATTS_WRITE        = const(3)
 
-_FLAG_READ   = const(0x0002)
-_FLAG_WRITE  = const(0x0008)
-_FLAG_NOTIFY = const(0x0010)
+_FLAG_READ              = const(0x0002)
+_FLAG_WRITE_NO_RESPONSE = const(0x0004)
+_FLAG_WRITE             = const(0x0008)
+_FLAG_NOTIFY            = const(0x0010)
 
 # -------------------- Protocol defs ------------------
 LAYOUT_VERSION         = 1
@@ -156,7 +157,7 @@ class BLEPeripheral:
         BLE_SERVICE = (
             SERVICE_UUID,
             (
-                (CHAR_UUID_WRITE,  _FLAG_WRITE | _FLAG_READ),
+                (CHAR_UUID_WRITE,  _FLAG_WRITE | _FLAG_WRITE_NO_RESPONSE | _FLAG_READ),
                 (CHAR_UUID_NOTIFY, _FLAG_NOTIFY),
             ),
         )

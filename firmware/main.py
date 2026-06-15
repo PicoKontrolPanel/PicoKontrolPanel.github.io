@@ -75,7 +75,7 @@ def on_disconnect():
     print('BLE client disconnected')
 
 
-ble = BLEPeripheral(base_controls=BluetoothControls, device_base_name='AllInOne')
+ble = BLEPeripheral(base_controls=BluetoothControls, device_base_name='LED')
 ble.on_write(handle_receive)
 ble.on_connect(on_connect)
 ble.on_disconnect(on_disconnect)

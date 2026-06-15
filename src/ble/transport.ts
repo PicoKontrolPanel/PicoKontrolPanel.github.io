@@ -98,18 +98,27 @@ export class BleTransport {
     this.onDisconnect();
   };
 
-  /** Write a single newline-terminated line, chunked to <= 20 bytes. Serialized. */
+  /**
+   * Write a single newline-terminated line, chunked to <= 20 bytes. Serialized.
+   * The returned promise reflects THIS write's result (so callers see failures),
+   * while the internal queue keeps running even if a write rejects.
+   */
   writeLine(line: string): Promise<void> {
-    this.writeQueue = this.writeQueue.then(() => this.doWrite(line)).catch((err) => {
-      console.error('write failed', err);
-    });
-    return this.writeQueue;
+    const run = this.writeQueue.then(() => this.doWrite(line));
+    this.writeQueue = run.catch(() => {});
+    return run;
   }
 
   private async doWrite(line: string): Promise<void> {
     if (!this.writeChar) throw new Error('Ingen forbindelse.');
     const data = encoder.encode(`${line}\n`);
-    const writeFn = this.writeChar.writeValueWithoutResponse
+    // Prefer write-without-response only when the characteristic actually
+    // supports it; otherwise fall back to write-with-response (the firmware's
+    // write char declares only Write-with-response).
+    const supportsNoResponse =
+      this.writeChar.properties.writeWithoutResponse &&
+      typeof this.writeChar.writeValueWithoutResponse === 'function';
+    const writeFn = supportsNoResponse
       ? this.writeChar.writeValueWithoutResponse.bind(this.writeChar)
       : this.writeChar.writeValue.bind(this.writeChar);
 
