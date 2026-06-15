@@ -1,0 +1,117 @@
+// Dot-grid coordinate model. Must match the device's layout meaning exactly:
+// cols=11, rows=31, edgeMargin=50. Origin = bottom-left dot.
+// Stored coords: centerX2/centerY2 in HALF-cells; spanX/spanY in WHOLE cells.
+
+import type { Control, Rotation } from '../lib/types';
+
+export const GRID_COLS = 11;
+export const GRID_ROWS = 31;
+export const EDGE_MARGIN = 50;
+
+export interface GridGeometry {
+  areaW: number;
+  areaH: number;
+  stepX: number;
+  stepY: number;
+}
+
+/** Pixel placement of a control (center + unrotated size). */
+export interface ControlRect {
+  cx: number;
+  cy: number;
+  width: number;
+  height: number;
+}
+
+export function computeGeometry(areaW: number, areaH: number): GridGeometry {
+  const usableW = Math.max(1, areaW - 2 * EDGE_MARGIN);
+  const usableH = Math.max(1, areaH - 2 * EDGE_MARGIN);
+  return {
+    areaW,
+    areaH,
+    stepX: usableW / (GRID_COLS - 1),
+    stepY: usableH / (GRID_ROWS - 1),
+  };
+}
+
+/** Half-cell center coord -> pixel from the relevant edge. */
+function centerToPxX(centerX2: number, geo: GridGeometry): number {
+  return EDGE_MARGIN + (centerX2 / 2) * geo.stepX;
+}
+
+function centerToPxY(centerY2: number, geo: GridGeometry): number {
+  // Origin is bottom-left, DOM top grows downward.
+  const fromBottom = EDGE_MARGIN + (centerY2 / 2) * geo.stepY;
+  return geo.areaH - fromBottom;
+}
+
+export function controlRect(control: Control, geo: GridGeometry): ControlRect | null {
+  if (
+    control.centerX2 === null ||
+    control.centerY2 === null ||
+    control.spanX === null ||
+    control.spanY === null
+  ) {
+    return null;
+  }
+  return {
+    cx: centerToPxX(control.centerX2, geo),
+    cy: centerToPxY(control.centerY2, geo),
+    width: control.spanX * geo.stepX,
+    height: control.spanY * geo.stepY,
+  };
+}
+
+/** All dot positions, for rendering the edit-mode grid. */
+export function gridDots(geo: GridGeometry): { x: number; y: number }[] {
+  const dots: { x: number; y: number }[] = [];
+  for (let col = 0; col < GRID_COLS; col += 1) {
+    for (let row = 0; row < GRID_ROWS; row += 1) {
+      dots.push({
+        x: EDGE_MARGIN + col * geo.stepX,
+        y: geo.areaH - (EDGE_MARGIN + row * geo.stepY),
+      });
+    }
+  }
+  return dots;
+}
+
+/**
+ * Snap a pixel center to the nearest valid half-cell coord for the given span.
+ * Center parity must match span parity (even span -> center on a dot -> even X2).
+ */
+export function snapCenter(
+  pxX: number,
+  pxY: number,
+  spanX: number,
+  spanY: number,
+  geo: GridGeometry,
+): { centerX2: number; centerY2: number } {
+  const snapAxis = (px: number, span: number, edgeToPx: (c2: number) => number, maxCell: number): number => {
+    const parity = span % 2; // odd span -> odd X2 (center sits between dots)
+    const maxX2 = maxCell * 2;
+    let best = parity;
+    let bestDist = Infinity;
+    for (let c2 = parity; c2 <= maxX2; c2 += 2) {
+      const d = Math.abs(edgeToPx(c2) - px);
+      if (d < bestDist) {
+        bestDist = d;
+        best = c2;
+      }
+    }
+    // Clamp so the control stays fully inside the grid (half-width = span half-cells).
+    return Math.max(span, Math.min(maxX2 - span, best));
+  };
+
+  const centerX2 = snapAxis(pxX, spanX, (c2) => centerToPxX(c2, geo), GRID_COLS - 1);
+  const centerY2 = snapAxis(pxY, spanY, (c2) => centerToPxY(c2, geo), GRID_ROWS - 1);
+  return { centerX2, centerY2 };
+}
+
+/** Effective on-screen bounding box accounting for 90/270 rotation (for collision). */
+export function rotatedSpan(spanX: number, spanY: number, rotation: Rotation): { w: number; h: number } {
+  if (rotation === 90 || rotation === 270) {
+    return { w: spanY, h: spanX };
+  }
+  return { w: spanX, h: spanY };
+}
