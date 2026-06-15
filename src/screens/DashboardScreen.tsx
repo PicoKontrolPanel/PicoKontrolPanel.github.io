@@ -20,7 +20,7 @@ export function DashboardScreen() {
   const devices = savedDevices.filter((d) => (page === 'mine' ? d.isOwnedByMe : !d.isOwnedByMe));
 
   return (
-    <div className="screen">
+    <div className="screen dashboard-screen">
       <TopBar title="Hovedmenu" onMenu={() => toggleSideMenu()} />
 
       <div className="content dash-content">

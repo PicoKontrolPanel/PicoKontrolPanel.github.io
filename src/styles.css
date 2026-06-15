@@ -328,7 +328,13 @@ button:disabled {
   transform: scale(0.94);
 }
 
-/* ---- Dashboard device list: 2 columns on thin displays, 3 on large ---- */
+/* ---- Dashboard: wider content window so wide displays fit up to 4 columns ---- */
+.dashboard-screen {
+  --content-max: 980px;
+}
+
+/* Device list: exactly 2 columns on thin displays; on wider ones the tiles keep
+   their size and flow into more columns (capped at 4 by the content width). */
 .device-list {
   flex: 1;
   display: grid;
@@ -339,9 +345,9 @@ button:disabled {
   overflow-y: auto;
 }
 
-@media (min-width: 720px) {
+@media (min-width: 600px) {
   .device-list {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
 }
 
@@ -514,6 +520,14 @@ button:disabled {
 
 .modal-head .iconbtn {
   color: var(--red);
+}
+
+/* Circular close: white circled-X on a red disc (used by the debugger). */
+.modal-head .iconbtn.modal-close-circle {
+  color: var(--white);
+  background: var(--red);
+  border-radius: 50%;
+  padding: 4px;
 }
 
 /* ---- Icon picker grid ---- */
