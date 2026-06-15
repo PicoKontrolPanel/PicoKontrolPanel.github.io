@@ -11,6 +11,7 @@ export function ControlPanelScreen() {
   const layout = useStore((s) => s.layout);
   const editMode = useStore((s) => s.editMode);
   const active = useStore((s) => s.active);
+  const sliderValues = useStore((s) => s.sliderValues);
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
   const sendButton = useStore((s) => s.sendButton);
   const sendSlider = useStore((s) => s.sendSlider);
@@ -45,6 +46,7 @@ export function ControlPanelScreen() {
                     control={control}
                     rect={rect}
                     disabled={false}
+                    latestValue={control.type === 'slider' ? sliderValues[control.name] : undefined}
                     onButton={sendButton}
                     onSlider={sendSlider}
                   />

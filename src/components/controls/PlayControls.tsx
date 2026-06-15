@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Control, Rotation } from '../../lib/types';
 import type { ControlRect } from '../../grid/geometry';
 
@@ -7,6 +7,7 @@ interface PlacedProps {
   control: Control;
   rect: ControlRect;
   disabled: boolean;
+  latestValue?: number;
   onButton: (name: string) => void;
   onSlider: (name: string, value: number) => void;
 }
@@ -56,7 +57,7 @@ function sliderTextMetrics(
   };
 }
 
-export function PlayControl({ control, rect, disabled, onButton, onSlider }: PlacedProps) {
+export function PlayControl({ control, rect, disabled, latestValue, onButton, onSlider }: PlacedProps) {
   const style: React.CSSProperties = {
     left: rect.cx,
     top: rect.cy,
@@ -89,6 +90,7 @@ export function PlayControl({ control, rect, disabled, onButton, onSlider }: Pla
       <SliderControl
         control={control}
         disabled={disabled}
+        latestValue={latestValue}
         onSlider={onSlider}
         width={rect.width}
         height={rect.height}
@@ -101,7 +103,16 @@ export function PlayControl({ control, rect, disabled, onButton, onSlider }: Pla
 function labelContent(name: string, vertical: boolean): React.ReactNode {
   if (!vertical) return name;
   return (
-    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.02 }}>
+    <span
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        width: '100%',
+        lineHeight: 1.02,
+        textAlign: 'center',
+      }}
+    >
       {[...name].map((ch, i) => (
         <span key={i}>{ch === ' ' ? ' ' : ch}</span>
       ))}
@@ -140,6 +151,8 @@ function SliderTextLayer({
   fontSize,
   endFontSize,
   centerInset,
+  lowLabel,
+  highLabel,
   showEnds,
 }: {
   name: string;
@@ -149,6 +162,8 @@ function SliderTextLayer({
   fontSize: number;
   endFontSize: number;
   centerInset: React.CSSProperties;
+  lowLabel: string;
+  highLabel: string;
   showEnds: boolean;
 }) {
   const ends = showEnds ? endPositions(rotation) : null;
@@ -171,8 +186,8 @@ function SliderTextLayer({
       </div>
       {ends && (
         <>
-          <div style={{ ...ends.low, fontWeight: 800, fontSize: endFontSize }}>0</div>
-          <div style={{ ...ends.high, fontWeight: 800, fontSize: endFontSize }}>100</div>
+          <div style={{ ...ends.low, fontWeight: 800, fontSize: endFontSize }}>{lowLabel}</div>
+          <div style={{ ...ends.high, fontWeight: 800, fontSize: endFontSize }}>{highLabel}</div>
         </>
       )}
     </div>
@@ -193,6 +208,8 @@ export function SliderVisual({
   value,
   showEnds = false,
   fillColor = 'var(--red)',
+  lowLabel = '0',
+  highLabel = '100',
 }: {
   name: string;
   rotation: Rotation;
@@ -201,6 +218,8 @@ export function SliderVisual({
   value: number;
   showEnds?: boolean;
   fillColor?: string;
+  lowLabel?: string;
+  highLabel?: string;
 }) {
   const vertical = rotation === 90 || rotation === 270;
   const { fontSize, endFontSize, centerInset } = sliderTextMetrics(name, width, height, vertical, showEnds);
@@ -230,6 +249,8 @@ export function SliderVisual({
       fontSize={fontSize}
       endFontSize={endFontSize}
       centerInset={centerInset}
+      lowLabel={lowLabel}
+      highLabel={highLabel}
       showEnds={showEnds}
     />
   );
@@ -253,20 +274,35 @@ export function SliderVisual({
 function SliderControl({
   control,
   disabled,
+  latestValue,
   onSlider,
   width,
   height,
 }: {
   control: Control;
   disabled: boolean;
+  latestValue?: number;
   onSlider: (name: string, value: number) => void;
   width: number;
   height: number;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const [value, setValue] = useState(0);
-  const lastSent = useRef(0);
+  const min = control.sliderMin ?? 0;
+  const max = control.sliderMax ?? 100;
+  const [percent, setPercent] = useState(() =>
+    latestValue === undefined
+      ? percentForRecenter(control.sliderRecenter ?? 'none')
+      : percentForValue(latestValue, min, max),
+  );
+  const lastSent = useRef<number | null>(null);
   const rot: Rotation = control.rotation;
+
+  useEffect(() => {
+    if (latestValue !== undefined) {
+      setPercent(percentForValue(latestValue, min, max));
+      lastSent.current = latestValue;
+    }
+  }, [latestValue, min, max]);
 
   function fractionFromEvent(e: React.PointerEvent): number {
     const el = trackRef.current;
@@ -282,12 +318,23 @@ function SliderControl({
 
   function setFromEvent(e: React.PointerEvent) {
     if (disabled) return;
-    const v = Math.round(fractionFromEvent(e) * 100);
-    setValue(v);
-    if (v !== lastSent.current) {
-      lastSent.current = v;
-      onSlider(control.name, v);
+    sendFraction(fractionFromEvent(e));
+  }
+
+  function sendFraction(fraction: number) {
+    const nextPercent = Math.round(fraction * 100);
+    const value = Math.round(min + (max - min) * fraction);
+    setPercent(nextPercent);
+    if (value !== lastSent.current) {
+      lastSent.current = value;
+      onSlider(control.name, value);
     }
+  }
+
+  function recenter() {
+    const mode = control.sliderRecenter ?? 'none';
+    if (disabled || mode === 'none') return;
+    sendFraction(percentForRecenter(mode) / 100);
   }
 
   return (
@@ -305,8 +352,32 @@ function SliderControl({
         if (e.buttons === 0) return;
         setFromEvent(e);
       }}
+      onPointerUp={recenter}
+      onPointerCancel={recenter}
+      onLostPointerCapture={recenter}
     >
-      <SliderVisual name={control.name} rotation={rot} width={width} height={height} value={value} showEnds />
+      <SliderVisual
+        name={control.name}
+        rotation={rot}
+        width={width}
+        height={height}
+        value={percent}
+        showEnds
+        lowLabel={String(min)}
+        highLabel={String(max)}
+      />
     </div>
   );
+}
+
+function percentForRecenter(mode: Control['sliderRecenter']): number {
+  if (mode === 'bottom') return 0;
+  if (mode === 'top') return 100;
+  if (mode === 'middle') return 50;
+  return 0;
+}
+
+function percentForValue(value: number, min: number, max: number): number {
+  if (max === min) return 0;
+  return Math.max(0, Math.min(100, Math.round(((value - min) / (max - min)) * 100)));
 }

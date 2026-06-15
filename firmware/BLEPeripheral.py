@@ -24,6 +24,7 @@ _FLAG_NOTIFY            = const(0x0010)
 LAYOUT_VERSION         = 1
 ALLOWED_COMMAND_TYPES  = ["button", "slider"]
 MAX_NAME_LENGTH        = 14
+SLIDER_RECENTER_MODES  = ["none", "bottom", "middle", "top"]
 
 # Files on-device
 SETTINGS_FILE = "DeviceSettings.txt"
@@ -36,7 +37,7 @@ class BLEPeripheral:
 
     Handshake (app drives):
       - 'HELLO'                          -> 'ACK:HELLO'
-      - 'who_are_you'                    -> 'unowned' | 'owned,<ownerID>,<iconID>'
+      - 'who_are_you'                    -> 'unowned' | 'owned,<ownerID>,<iconID>,<canConnect>,<canEdit>'
       - 'ACK:ownership'                  -> 'READY:permission'  (staged, optional)
       - 'request_permission,<id>,<name>' -> 'perm,<canConnect>,<canEdit>'
                                             (denies + disconnects if private)
@@ -86,6 +87,7 @@ class BLEPeripheral:
 
         # ---- Session flags
         self._session_can_edit = False
+        self._session_is_owner = False
 
         # ---- Files & buffers
         self._settings_file = SETTINGS_FILE
@@ -132,7 +134,9 @@ class BLEPeripheral:
         """Build a list of control dicts from tuples like [("button","A"),("slider","B")]."""
         result = []
         seen = set()
-        for ctrl_type, name in base_controls:
+        for spec in base_controls:
+            ctrl_type = spec[0]
+            name = spec[1]
             if ctrl_type not in ALLOWED_COMMAND_TYPES:
                 print("Skipping invalid control type:", ctrl_type)
                 continue
@@ -143,7 +147,7 @@ class BLEPeripheral:
                 print("Skipping duplicate control name:", name)
                 continue
             seen.add(name)
-            result.append({
+            ctrl = {
                 "type": ctrl_type,
                 "name": name,
                 "x": None,        # grid centerX2 (half-cells)
@@ -151,7 +155,23 @@ class BLEPeripheral:
                 "width": None,    # grid spanX (cells)
                 "height": None,   # grid spanY (cells)
                 "rotation": 0     # 0/90/180/270
-            })
+            }
+            if ctrl_type == "slider":
+                ctrl["min"] = 0
+                ctrl["max"] = 100
+                ctrl["recenter"] = "none"
+                if len(spec) >= 4:
+                    try:
+                        ctrl["min"] = int(spec[2])
+                        ctrl["max"] = int(spec[3])
+                    except:
+                        ctrl["min"] = 0
+                        ctrl["max"] = 100
+                if ctrl["max"] == ctrl["min"]:
+                    ctrl["max"] = ctrl["min"] + 1
+                if len(spec) >= 5 and spec[4] in SLIDER_RECENTER_MODES:
+                    ctrl["recenter"] = spec[4]
+            result.append(ctrl)
         print("Initialized base controls:", len(result))
         return result
 
@@ -294,7 +314,14 @@ class BLEPeripheral:
                     w = ctrl["width"] if ctrl["width"] is not None else "n"
                     h = ctrl["height"] if ctrl["height"] is not None else "n"
                     r = ctrl.get("rotation", 0)
-                    f.write("{},{},{},{},{},{},{}\n".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
+                    if ctrl["type"] == "slider":
+                        mn = ctrl.get("min", 0)
+                        mx = ctrl.get("max", 100)
+                        recenter = ctrl.get("recenter", "none")
+                        f.write("{},{},{},{},{},{},{},{},{},{}\n".format(
+                            ctrl['type'], ctrl['name'], x, y, w, h, r, mn, mx, recenter))
+                    else:
+                        f.write("{},{},{},{},{},{},{}\n".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
             print("Layout saved successfully.")
             self.send_with_retry("ACK: Layout saved.\n", max_attempts=3)
         except Exception as e:
@@ -312,7 +339,7 @@ class BLEPeripheral:
                 if line.startswith("#VERSION"):
                     continue
                 parts = line.split(",")
-                if len(parts) != 7:
+                if len(parts) < 7:
                     print("Skipping malformed layout line:", line)
                     continue
                 ctrl_type, name, x, y, w, h, r = parts
@@ -325,7 +352,7 @@ class BLEPeripheral:
                     except:
                         return None
 
-                overrides[name] = {
+                override = {
                     "type": ctrl_type,
                     "name": name,
                     "x": _to_val(x),
@@ -334,6 +361,22 @@ class BLEPeripheral:
                     "height": _to_val(h),
                     "rotation": int(float(r)) if r not in ("n", "") else 0
                 }
+                if ctrl_type == "slider":
+                    override["min"] = 0
+                    override["max"] = 100
+                    override["recenter"] = "none"
+                    if len(parts) >= 10:
+                        try:
+                            override["min"] = int(float(parts[7]))
+                            override["max"] = int(float(parts[8]))
+                        except:
+                            override["min"] = 0
+                            override["max"] = 100
+                        if override["max"] == override["min"]:
+                            override["max"] = override["min"] + 1
+                        if parts[9] in SLIDER_RECENTER_MODES:
+                            override["recenter"] = parts[9]
+                overrides[name] = override
 
             updated = []
             known = set()
@@ -357,6 +400,7 @@ class BLEPeripheral:
     # -------------------- BLE IRQ / I/O --------------------
     def _reset_protocol_state(self):
         self._session_can_edit = False
+        self._session_is_owner = False
         self._rx_layout_buffer = ""
         self._command_buffer = ""
         self._expecting_update = False
@@ -613,7 +657,12 @@ class BLEPeripheral:
 
         elif msg == "who_are_you":
             if self.owner_id:
-                self._send_reliable_stream(["owned,{},{}".format(self.owner_id, int(self.icon_id))])
+                self._send_reliable_stream(["owned,{},{},{},{}".format(
+                    self.owner_id,
+                    int(self.icon_id),
+                    int(self.can_others_connect),
+                    int(self.can_others_edit),
+                )])
             else:
                 self._send_reliable_stream(["unowned"])
 
@@ -626,8 +675,10 @@ class BLEPeripheral:
 
             if self.owner_id and requester_id == self.owner_id:
                 self._session_can_edit = True
+                self._session_is_owner = True
                 self._send_reliable_stream(["perm,1,1"])
             else:
+                self._session_is_owner = False
                 if self.can_others_connect == 1:
                     self._session_can_edit = True if self.can_others_edit == 1 else False
                     self._send_reliable_stream(["perm,1,{}".format(1 if self._session_can_edit else 0)])
@@ -681,11 +732,59 @@ class BLEPeripheral:
             self.save_settings_to_file(owner_id, owner_name, icon_id, can_connect, can_edit,
                                        grid_cols, grid_rows)
             self._session_can_edit = True
+            self._session_is_owner = True
             try:
                 self._advertise()
             except Exception:
                 pass
             self._send_reliable_stream(["ACK:create"])
+
+        elif msg.startswith("settings_update,"):
+            if not self._session_is_owner:
+                self._send_reliable_stream(["ERR: Owner permission required"])
+                return
+            parts = msg.split(",")
+            if len(parts) < 6:
+                self._send_reliable_stream(["ERR: Malformed settings_update command"])
+                return
+            try:
+                icon_id = int(parts[1])
+            except:
+                icon_id = self.icon_id
+            try:
+                can_connect = 1 if int(parts[2]) == 1 else 0
+            except:
+                can_connect = self.can_others_connect
+            try:
+                can_edit = 1 if int(parts[3]) == 1 else 0
+            except:
+                can_edit = self.can_others_edit
+            try:
+                grid_cols = int(parts[4])
+            except:
+                grid_cols = self.grid_cols
+            try:
+                grid_rows = int(parts[5])
+            except:
+                grid_rows = self.grid_rows
+
+            if can_connect == 0:
+                can_edit = 0
+
+            self.save_settings_to_file(
+                self.owner_id or "",
+                self.owner_name or "",
+                icon_id,
+                can_connect,
+                can_edit,
+                grid_cols,
+                grid_rows,
+            )
+            try:
+                self._advertise()
+            except Exception:
+                pass
+            self._send_reliable_stream(["ACK:settings_update"])
 
         else:
             # Application commands ("button,STOP" / "slider,NAME:VALUE")
@@ -707,7 +806,14 @@ class BLEPeripheral:
             w = ctrl["width"] if ctrl["width"] is not None else "n"
             h = ctrl["height"] if ctrl["height"] is not None else "n"
             r = ctrl.get("rotation", 0)
-            lines.append("{},{},{},{},{},{},{}".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
+            if ctrl["type"] == "slider":
+                mn = ctrl.get("min", 0)
+                mx = ctrl.get("max", 100)
+                recenter = ctrl.get("recenter", "none")
+                lines.append("{},{},{},{},{},{},{},{},{},{}".format(
+                    ctrl['type'], ctrl['name'], x, y, w, h, r, mn, mx, recenter))
+            else:
+                lines.append("{},{},{},{},{},{},{}".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
         lines.append("__END__")
         self._send_reliable_stream(lines)
         print("[send_layout] Sent layout ({} controls)".format(len(self.controls)))
@@ -725,7 +831,7 @@ class BLEPeripheral:
                 if line.startswith("update,"):
                     line = line[len("update,"):]
                 parts = line.split(",")
-                if len(parts) != 7:
+                if len(parts) < 7:
                     print("Skipping malformed update line:", line)
                     continue
                 ctrl_type, name, x, y, w, h, r = parts
@@ -738,7 +844,7 @@ class BLEPeripheral:
                     except:
                         return None
 
-                overrides[name] = {
+                override = {
                     "type": ctrl_type,
                     "name": name,
                     "x": _parse_or_none(x),
@@ -747,6 +853,17 @@ class BLEPeripheral:
                     "height": _parse_or_none(h),
                     "rotation": int(float(r)) if r not in ("n", "") else 0
                 }
+                if ctrl_type == "slider" and len(parts) >= 10:
+                    try:
+                        override["min"] = int(float(parts[7]))
+                        override["max"] = int(float(parts[8]))
+                    except:
+                        pass
+                    if parts[9] in SLIDER_RECENTER_MODES:
+                        override["recenter"] = parts[9]
+                    if override.get("max") == override.get("min"):
+                        override["max"] = override["min"] + 1
+                overrides[name] = override
 
             updated = []
             names = set()

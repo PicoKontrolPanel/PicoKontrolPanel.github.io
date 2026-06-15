@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { TopBar } from '../components/TopBar';
+import { Modal } from '../components/Modal';
 import { Glyph, deviceIconUrl } from '../assets/icons';
 import { APP_VERSION } from '../lib/storage';
 import { getPermittedDevices, isBluetoothSupported } from '../ble/transport';
@@ -13,8 +14,10 @@ export function DashboardScreen() {
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
   const findDevice = useStore((s) => s.findDevice);
   const removeSavedDevice = useStore((s) => s.removeSavedDevice);
+  const askConfirm = useStore((s) => s.askConfirm);
   const reconnect = useReconnect();
   const [page, setPage] = useState<Page>('mine');
+  const [settingsDevice, setSettingsDevice] = useState<SavedDevice | null>(null);
 
   const supported = isBluetoothSupported();
   const devices = savedDevices.filter((d) => (page === 'mine' ? d.isOwnedByMe : !d.isOwnedByMe));
@@ -62,7 +65,7 @@ export function DashboardScreen() {
                 device={d}
                 disabled={!supported}
                 onConnect={() => reconnect(d)}
-                onDelete={() => removeSavedDevice(d.deviceID)}
+                onSettings={() => setSettingsDevice(d)}
               />
             ))
           )}
@@ -80,6 +83,51 @@ export function DashboardScreen() {
       </button>
 
       <span className="version">{APP_VERSION}</span>
+
+      {settingsDevice && (
+        <Modal title="Device Settings" onClose={() => setSettingsDevice(null)}>
+          <div className="settings-stack">
+            <div className="saved-device-head">
+              <img src={deviceIconUrl(settingsDevice.deviceIconID)} alt="" />
+              <strong>{settingsDevice.deviceName}</strong>
+            </div>
+            <InfoRow label="Gemte indstillinger" value="Denne browser" />
+            <InfoRow label="Ejer" value={settingsDevice.isOwnedByMe ? 'Denne bruger' : 'Anden bruger'} />
+            <InfoRow label="Offentlig" value={settingsDevice.canOthersConnect ? 'Ja' : 'Nej'} />
+            <InfoRow label="Andre må redigere" value={settingsDevice.canOthersEdit ? 'Ja' : 'Nej'} />
+            <div className="notice">Forbind til enheden for at ændre de indstillinger, der er gemt på Picoen.</div>
+            <button
+              className="btn btn-primary btn-block"
+              type="button"
+              disabled={!supported}
+              onClick={() => {
+                const device = settingsDevice;
+                setSettingsDevice(null);
+                reconnect(device);
+              }}
+            >
+              Forbind
+            </button>
+            <button
+              className="btn btn-outline btn-block"
+              type="button"
+              onClick={() =>
+                askConfirm({
+                  title: 'Glem enhed',
+                  message: `Vil du fjerne ${settingsDevice.deviceName} fra gemte enheder?`,
+                  confirmLabel: 'Glem',
+                  onConfirm: () => {
+                    removeSavedDevice(settingsDevice.deviceID);
+                    setSettingsDevice(null);
+                  },
+                })
+              }
+            >
+              Glem enhed
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -88,12 +136,12 @@ function DeviceCard({
   device,
   disabled,
   onConnect,
-  onDelete,
+  onSettings,
 }: {
   device: SavedDevice;
   disabled: boolean;
   onConnect: () => void;
-  onDelete: () => void;
+  onSettings: () => void;
 }) {
   return (
     <div className="device-tile-wrap">
@@ -101,9 +149,18 @@ function DeviceCard({
         <img className="device-tile-icon" src={deviceIconUrl(device.deviceIconID)} alt="" />
         <span className="device-tile-name">{device.deviceName}</span>
       </button>
-      <button className="device-tile-del" type="button" onClick={onDelete} aria-label="Slet enhed">
-        <Glyph name="delete" size={36} />
+      <button className="device-tile-del" type="button" onClick={onSettings} aria-label="Enhedsindstillinger">
+        <Glyph name="settings" />
       </button>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="settings-row">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }

@@ -407,15 +407,23 @@ button:disabled {
 
 .device-tile-del {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: clamp(5px, 1.4vw, 10px);
+  right: clamp(5px, 1.4vw, 10px);
   color: var(--white);
   display: grid;
   place-items: center;
+  width: clamp(26px, 6.4vw, 38px);
+  height: clamp(26px, 6.4vw, 38px);
+  padding: 0;
 }
 
 .device-tile-del:active {
   transform: scale(0.92);
+}
+
+.device-tile-del svg {
+  width: clamp(20px, 5vw, 30px);
+  height: clamp(20px, 5vw, 30px);
 }
 
 /* ---- Side menu ---- */
@@ -476,6 +484,11 @@ button:disabled {
 
 .sidemenu button:active {
   background: var(--red-dark);
+}
+
+.sidemenu button:disabled {
+  opacity: 0.38;
+  background: transparent;
 }
 
 .sidemenu .spacer {
@@ -594,6 +607,34 @@ button:disabled {
   display: grid;
   place-items: center;
   border: 2px solid var(--red);
+}
+
+.settings-icon-pick {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto;
+  border-radius: var(--radius-sm);
+}
+
+.saved-device-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.saved-device-head img {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  background: var(--red);
+  border-radius: 16px;
+  padding: 10px;
+}
+
+.saved-device-head strong {
+  font-size: 1.15rem;
+  overflow-wrap: anywhere;
 }
 
 .prompt {
@@ -749,6 +790,16 @@ button:disabled {
   border-color: var(--disabled);
 }
 
+.snap-preview {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 3px dashed var(--text);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.38);
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* ---- Edit mode: toolbar band above the area, actions band below ---- */
 .edit-view {
   flex: 1;
@@ -854,6 +905,75 @@ button:disabled {
   color: var(--red-dark);
   font-weight: 600;
   line-height: 1.4;
+}
+
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--grey);
+}
+
+.settings-row span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.settings-row strong {
+  color: var(--text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.prose p {
+  margin: 0;
+  line-height: 1.45;
+  font-weight: 650;
+}
+
+.confirm-message {
+  margin: 0;
+  line-height: 1.45;
+  font-weight: 700;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.settings-section h4 {
+  margin: 0;
+  color: var(--red);
+  font-size: 1rem;
+}
+
+.slider-meta {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--grey);
+  border-radius: 12px;
+  background: var(--grey-light);
+}
+
+.slider-meta strong {
+  color: var(--text);
+}
+
+.slider-meta span {
+  color: var(--muted);
+  font-weight: 700;
 }
 
 /* ---- Dashboard: keep the device panel a little above the FAB ---- */

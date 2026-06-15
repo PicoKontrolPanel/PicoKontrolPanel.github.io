@@ -5,7 +5,7 @@ import type { SavedDevice, User } from './types';
 const USER_KEY = 'pkp.user';
 const DEVICES_KEY = 'pkp.savedDevices';
 
-export const APP_VERSION = 'Prototype Version 0.6.8';
+export const APP_VERSION = 'Prototype Version 0.6.7';
 
 function readJSON<T>(key: string): T | null {
   try {
@@ -42,6 +42,10 @@ export function loadSavedDevices(): SavedDevice[] {
 
 export function saveDevices(devices: SavedDevice[]): void {
   writeJSON(DEVICES_KEY, devices);
+}
+
+export function clearSavedDevices(): void {
+  saveDevices([]);
 }
 
 /** Insert or update a saved device by deviceID. */

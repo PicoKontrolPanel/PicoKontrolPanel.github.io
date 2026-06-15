@@ -1,7 +1,7 @@
 // High-level protocol: handshake, layout request/save, control commands.
 // Sits on BleTransport (lines) + ReliableStream (framing). Mirrors AppManager.cs.
 
-import type { Control, Rotation, User } from '../lib/types';
+import type { Control, Rotation, SliderRecenter, User } from '../lib/types';
 import { BleTransport, displayName } from './transport';
 import { ReliableStream } from './reliableStream';
 import { DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, MAX_GRID, MIN_GRID } from '../grid/geometry';
@@ -17,7 +17,15 @@ export interface ProtocolEvents {
 export type HandshakeResult =
   | { kind: 'unowned' }
   | { kind: 'denied' }
-  | { kind: 'owned'; ownerID: string; iconID: number; canEdit: boolean; isOwnedByMe: boolean };
+  | {
+      kind: 'owned';
+      ownerID: string;
+      iconID: number;
+      canEdit: boolean;
+      isOwnedByMe: boolean;
+      canOthersConnect: boolean;
+      canOthersEdit: boolean;
+    };
 
 interface Waiter {
   match: (line: string) => boolean;
@@ -189,6 +197,8 @@ export class PicoProtocol {
     const parts = ownLine.split(',');
     const ownerID = parts[1] ?? '';
     const iconID = parts[2] !== undefined ? parseInt(parts[2], 10) || 0 : 0;
+    const reportedCanConnect = parts[3] !== undefined ? parseInt(parts[3], 10) === 1 : true;
+    const reportedCanEdit = parts[4] !== undefined ? parseInt(parts[4], 10) === 1 : false;
 
     // Staged ack -> READY:permission. Optional; tolerate absence.
     try {
@@ -218,7 +228,15 @@ export class PicoProtocol {
     const canEditThisSession = canEdit === 1 || isOwnedByMe;
     await this.transport.writeLine('ACK:permission');
 
-    return { kind: 'owned', ownerID, iconID, canEdit: canEditThisSession, isOwnedByMe };
+    return {
+      kind: 'owned',
+      ownerID,
+      iconID,
+      canEdit: canEditThisSession,
+      isOwnedByMe,
+      canOthersConnect: reportedCanConnect,
+      canOthersEdit: reportedCanEdit,
+    };
   }
 
   // ---- create (unowned setup) ------------------------------------------
@@ -236,6 +254,23 @@ export class PicoProtocol {
       `create,${user.userID},${user.username},${iconID},${c},${e},${cols},${rows}`,
       (l) => l === 'ACK:create',
       'create',
+    );
+  }
+
+  async updateDeviceSettings(
+    iconID: number,
+    canConnect: boolean,
+    canEdit: boolean,
+    cols: number,
+    rows: number,
+  ): Promise<void> {
+    const c = canConnect ? 1 : 0;
+    const e = canConnect && canEdit ? 1 : 0;
+    await this.exchange(
+      `settings_update,${iconID},${c},${e},${cols},${rows}`,
+      (l) => l === 'ACK:settings_update',
+      'settings_update',
+      3,
     );
   }
 
@@ -299,9 +334,14 @@ export class PicoProtocol {
     if (this.busy) return;
     this.controlQueue = this.controlQueue.then(async () => {
       if (this.busy || !this.transport.connected) return;
-      await this.transport.writeLine(line);
-      this.log('info', `tx: ${line}`);
-      await delay(CONTROL_GAP_MS);
+      try {
+        await this.transport.writeLine(line);
+        this.log('info', `tx: ${line}`);
+        await delay(CONTROL_GAP_MS);
+      } catch (err) {
+        this.log('error', err instanceof Error ? err.message : 'Kunne ikke sende kommando.');
+        this.handleDisconnect();
+      }
     });
   }
 
@@ -357,8 +397,8 @@ export function parseLayout(lines: string[]): Control[] {
     const line = raw.trim();
     if (!line || line.startsWith('#VERSION') || line === '__END__') continue;
     const parts = line.split(',');
-    if (parts.length !== 7) continue;
-    const [type, name, x, y, w, h, r] = parts;
+    if (parts.length < 7) continue;
+    const [type, name, x, y, w, h, r, minRaw, maxRaw, recenterRaw] = parts;
     if (type !== 'button' && type !== 'slider') continue;
     if (byName.has(name)) continue; // keep first per name
 
@@ -368,6 +408,11 @@ export function parseLayout(lines: string[]): Control[] {
       return Number.isNaN(v) ? null : v;
     };
     const rot = (parseInt(r, 10) || 0) as Rotation;
+    const sliderMin = minRaw !== undefined ? parseInt(minRaw, 10) : 0;
+    const sliderMax = maxRaw !== undefined ? parseInt(maxRaw, 10) : 100;
+    const recenter = (['none', 'bottom', 'middle', 'top'].includes(recenterRaw ?? '')
+      ? recenterRaw
+      : 'none') as SliderRecenter;
 
     byName.set(name, {
       type,
@@ -377,6 +422,13 @@ export function parseLayout(lines: string[]): Control[] {
       spanX: toNum(w),
       spanY: toNum(h),
       rotation: [0, 90, 180, 270].includes(rot) ? rot : 0,
+      ...(type === 'slider'
+        ? {
+            sliderMin: Number.isFinite(sliderMin) ? sliderMin : 0,
+            sliderMax: Number.isFinite(sliderMax) ? sliderMax : 100,
+            sliderRecenter: recenter,
+          }
+        : {}),
     });
   }
   return [...byName.values()];

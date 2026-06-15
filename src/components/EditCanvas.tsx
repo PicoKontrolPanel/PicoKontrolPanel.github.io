@@ -56,6 +56,7 @@ export function EditCanvas() {
   const active = useStore((s) => s.active);
   const saveLayout = useStore((s) => s.saveLayout);
   const setEditMode = useStore((s) => s.setEditMode);
+  const askConfirm = useStore((s) => s.askConfirm);
   const canEdit = !!active?.canEdit;
 
   const [draft, setDraft] = useState<Control[]>(() => layout.map((c) => ({ ...c })));
@@ -91,6 +92,15 @@ export function EditCanvas() {
 
   const hasCollision = colliding.size > 0;
   const selectedControl = draft.find((c) => c.name === selected) ?? null;
+  const dirty = useMemo(() => layoutSignature(draft) !== layoutSignature(layout), [draft, layout]);
+  const snapPreview = useMemo(() => {
+    if (!dragName || !dragPx) return null;
+    const control = draft.find((c) => c.name === dragName);
+    if (!control || control.spanX === null || control.spanY === null) return null;
+    const snapped = snapCenter(dragPx.cx, dragPx.cy, control.spanX, control.spanY, geo);
+    const rect = controlRect({ ...control, centerX2: snapped.centerX2, centerY2: snapped.centerY2 }, geo);
+    return rect ? { name: control.name, rect } : null;
+  }, [draft, dragName, dragPx, geo]);
 
   function update(name: string, fn: (c: Control) => Control) {
     setDraft((d) => d.map((c) => (c.name === name ? fn(c) : c)));
@@ -187,6 +197,19 @@ export function EditCanvas() {
     setSaving(false);
   }
 
+  function cancel() {
+    if (!dirty) {
+      setEditMode(false);
+      return;
+    }
+    askConfirm({
+      title: 'Discard Changes',
+      message: 'Vil du forlade edit mode og kassere dine layout-ændringer?',
+      confirmLabel: 'Kassér',
+      onConfirm: () => setEditMode(false),
+    });
+  }
+
   return (
     <div className="edit-view">
       {/* toolbar band (above the area, under the top bar) */}
@@ -254,6 +277,18 @@ export function EditCanvas() {
                 ))}
               </svg>
 
+              {snapPreview && (
+                <div
+                  className="snap-preview"
+                  style={{
+                    left: snapPreview.rect.cx,
+                    top: snapPreview.rect.cy,
+                    width: snapPreview.rect.width,
+                    height: snapPreview.rect.height,
+                  }}
+                />
+              )}
+
               {placed.map((c) => {
                 const isDragging = dragName === c.name && dragPx;
                 const rect = controlRect(c, geo);
@@ -301,6 +336,8 @@ export function EditCanvas() {
                           height={rect.height}
                           value={50}
                           showEnds
+                          lowLabel={String(c.sliderMin ?? 0)}
+                          highLabel={String(c.sliderMax ?? 100)}
                           fillColor={colliding.has(c.name) ? 'var(--disabled)' : 'var(--red)'}
                         />
                       </div>
@@ -338,7 +375,7 @@ export function EditCanvas() {
           className="btn btn-outline"
           style={{ flex: 1 }}
           type="button"
-          onClick={() => setEditMode(false)}
+          onClick={cancel}
           disabled={saving}
         >
           Annuller
@@ -356,6 +393,20 @@ export function EditCanvas() {
 
       {addOpen && <AddModal unplaced={unplaced} onAdd={add} onClose={() => setAddOpen(false)} />}
     </div>
+  );
+}
+
+function layoutSignature(controls: Control[]): string {
+  return JSON.stringify(
+    controls.map((c) => ({
+      type: c.type,
+      name: c.name,
+      centerX2: c.centerX2,
+      centerY2: c.centerY2,
+      spanX: c.spanX,
+      spanY: c.spanY,
+      rotation: c.rotation,
+    })),
   );
 }
 

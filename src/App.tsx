@@ -8,6 +8,9 @@ import { CreateDeviceScreen } from './screens/CreateDeviceScreen';
 import { ControlPanelScreen } from './screens/ControlPanelScreen';
 import { SideMenu } from './components/SideMenu';
 import { Debugger } from './components/Debugger';
+import { MenuPages } from './components/MenuPages';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { ConnectionLost } from './components/ConnectionLost';
 import { Toast } from './components/Toast';
 
 function App() {
@@ -31,6 +34,9 @@ function App() {
       {screen === 'control' && <ControlPanelScreen />}
 
       {sideMenuOpen && <SideMenu />}
+      <MenuPages />
+      <ConnectionLost />
+      <ConfirmDialog />
       {debuggerOpen && <Debugger />}
       <Toast />
     </div>

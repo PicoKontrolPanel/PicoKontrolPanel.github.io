@@ -2,6 +2,7 @@
 
 export type ControlType = 'button' | 'slider';
 export type Rotation = 0 | 90 | 180 | 270;
+export type SliderRecenter = 'none' | 'bottom' | 'middle' | 'top';
 
 /**
  * A single control as defined by the device layout.
@@ -20,6 +21,9 @@ export interface Control {
   spanX: number | null;
   spanY: number | null;
   rotation: Rotation;
+  sliderMin?: number;
+  sliderMax?: number;
+  sliderRecenter?: SliderRecenter;
 }
 
 export function isPlaced(c: Control): boolean {

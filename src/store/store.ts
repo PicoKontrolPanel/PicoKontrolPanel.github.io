@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Control, SavedDevice, User } from '../lib/types';
 import { generateUserID } from '../lib/id';
 import {
+  clearSavedDevices as clearSavedDevicesStorage,
   loadSavedDevices,
   loadUser,
   removeDevice,
@@ -20,6 +21,13 @@ export type Screen =
   | 'create'
   | 'control';
 
+export type MenuPage =
+  | 'user-settings'
+  | 'application-settings'
+  | 'application-help'
+  | 'device-settings'
+  | 'device-help';
+
 export interface LogEntry {
   level: LogLevel;
   message: string;
@@ -31,11 +39,21 @@ export interface ConnectingInfo {
   iconID: number;
 }
 
+interface ConfirmDialog {
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm: () => void;
+}
+
 interface ActiveDevice {
   deviceID: string;
   deviceName: string;
   iconID: number;
   canEdit: boolean;
+  canOthersConnect: boolean;
+  canOthersEdit: boolean;
   isOwnedByMe: boolean;
   gridCols: number;
   gridRows: number;
@@ -49,13 +67,17 @@ interface AppState {
   connecting: ConnectingInfo | null;
   progress: { value: number; label: string };
   toast: { message: string; id: number } | null;
+  confirmDialog: ConfirmDialog | null;
+  connectionLost: SavedDevice | null;
 
   active: ActiveDevice | null;
   layout: Control[];
+  sliderValues: Record<string, number>;
 
   logs: LogEntry[];
   sideMenuOpen: boolean;
   debuggerOpen: boolean;
+  menuPage: MenuPage | null;
   editMode: boolean;
 
   // actions
@@ -70,9 +92,20 @@ interface AppState {
     cols: number,
     rows: number,
   ) => Promise<void>;
+  saveDeviceSettings: (
+    iconID: number,
+    canConnect: boolean,
+    canEdit: boolean,
+    cols: number,
+    rows: number,
+  ) => Promise<void>;
   cancelCreate: () => Promise<void>;
   disconnect: () => Promise<void>;
   removeSavedDevice: (deviceID: string) => void;
+  clearSavedDevices: () => void;
+  updateUsername: (username: string) => void;
+  reconnectLostDevice: () => Promise<void>;
+  dismissConnectionLost: () => void;
 
   sendButton: (name: string) => void;
   sendSlider: (name: string, value: number) => void;
@@ -81,8 +114,12 @@ interface AppState {
   setEditMode: (on: boolean) => void;
   toggleSideMenu: (open?: boolean) => void;
   toggleDebugger: (open?: boolean) => void;
+  openMenuPage: (page: MenuPage) => void;
+  closeMenuPage: () => void;
   clearLogs: () => void;
   log: (level: LogLevel, message: string) => void;
+  askConfirm: (dialog: ConfirmDialog) => void;
+  closeConfirm: () => void;
   showToast: (message: string) => void;
   dismissToast: () => void;
 }
@@ -90,6 +127,7 @@ interface AppState {
 let protocol: PicoProtocol | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let toastCounter = 0;
+let suppressNextDisconnect = false;
 
 function timestamp(): string {
   return new Date().toLocaleTimeString('da-DK', { hour12: false });
@@ -115,14 +153,29 @@ export const useStore = create<AppState>((set, get) => {
     onProgress: (value, label) => set({ progress: { value, label } }),
     onLog: (level, message) => pushLog(level, message),
     onDisconnect: () => {
-      const { screen } = get();
+      const { screen, active } = get();
       if (screen === 'control' || screen === 'connection' || screen === 'create') {
+        const lostDevice: SavedDevice | null =
+          !suppressNextDisconnect && active
+            ? {
+                deviceID: active.deviceID,
+                deviceName: active.deviceName,
+                deviceIconID: active.iconID,
+                canOthersConnect: active.canOthersConnect,
+                canOthersEdit: active.canOthersEdit,
+                isOwnedByMe: active.isOwnedByMe,
+              }
+            : null;
+        suppressNextDisconnect = false;
         set({
           screen: 'dashboard',
           active: null,
           layout: [],
+          sliderValues: {},
           editMode: false,
           sideMenuOpen: false,
+          menuPage: null,
+          connectionLost: lostDevice,
         });
       }
     },
@@ -135,11 +188,15 @@ export const useStore = create<AppState>((set, get) => {
     connecting: null,
     progress: { value: 0, label: '' },
     toast: null,
+    confirmDialog: null,
+    connectionLost: null,
     active: null,
     layout: [],
+    sliderValues: {},
     logs: [],
     sideMenuOpen: false,
     debuggerOpen: false,
+    menuPage: null,
     editMode: false,
 
     init: () => {
@@ -175,6 +232,7 @@ export const useStore = create<AppState>((set, get) => {
     connectToDevice: async (device, known) => {
       const user = get().user;
       if (!user || !protocol) return;
+      suppressNextDisconnect = false;
 
       set({
         screen: 'connection',
@@ -203,6 +261,8 @@ export const useStore = create<AppState>((set, get) => {
               deviceName,
               iconID: 0,
               canEdit: true,
+              canOthersConnect: false,
+              canOthersEdit: false,
               isOwnedByMe: true,
               gridCols: DEFAULT_GRID_COLS,
               gridRows: DEFAULT_GRID_ROWS,
@@ -217,8 +277,8 @@ export const useStore = create<AppState>((set, get) => {
           deviceID,
           deviceName,
           deviceIconID: result.iconID,
-          canOthersConnect: true,
-          canOthersEdit: result.canEdit && !result.isOwnedByMe,
+          canOthersConnect: result.canOthersConnect,
+          canOthersEdit: result.canOthersEdit,
           isOwnedByMe: result.isOwnedByMe,
         };
         set({ savedDevices: upsertDevice(saved) });
@@ -227,17 +287,21 @@ export const useStore = create<AppState>((set, get) => {
         const grid = parseGridHeader(lines);
         set({
           layout: parseLayout(lines),
+          sliderValues: {},
           active: {
             deviceID,
             deviceName,
             iconID: result.iconID,
             canEdit: result.canEdit,
+            canOthersConnect: result.canOthersConnect,
+            canOthersEdit: result.canOthersEdit,
             isOwnedByMe: result.isOwnedByMe,
             gridCols: grid.cols,
             gridRows: grid.rows,
           },
           screen: 'control',
           connecting: null,
+          connectionLost: null,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Forbindelsen mislykkedes.';
@@ -270,7 +334,16 @@ export const useStore = create<AppState>((set, get) => {
         const grid = parseGridHeader(lines);
         set({
           layout: parseLayout(lines),
-          active: { ...active, iconID, canEdit: true, gridCols: grid.cols, gridRows: grid.rows },
+          sliderValues: {},
+          active: {
+            ...active,
+            iconID,
+            canEdit: true,
+            canOthersConnect: canConnect,
+            canOthersEdit: canConnect && canEdit,
+            gridCols: grid.cols,
+            gridRows: grid.rows,
+          },
           screen: 'control',
         });
       } catch (err) {
@@ -283,22 +356,107 @@ export const useStore = create<AppState>((set, get) => {
       }
     },
 
+    saveDeviceSettings: async (iconID, canConnect, canEdit, cols, rows) => {
+      const active = get().active;
+      if (!active || !protocol || !active.isOwnedByMe) return;
+      try {
+        protocol.setBusy(true);
+        await protocol.updateDeviceSettings(iconID, canConnect, canEdit, cols, rows);
+        const nextActive = {
+          ...active,
+          iconID,
+          canEdit: true,
+          canOthersConnect: canConnect,
+          canOthersEdit: canConnect && canEdit,
+          gridCols: cols,
+          gridRows: rows,
+        };
+        const saved: SavedDevice = {
+          deviceID: active.deviceID,
+          deviceName: active.deviceName,
+          deviceIconID: iconID,
+          canOthersConnect: canConnect,
+          canOthersEdit: canConnect && canEdit,
+          isOwnedByMe: true,
+        };
+        set({ active: nextActive, savedDevices: upsertDevice(saved) });
+        pushToast('Enhedsindstillinger gemt.');
+      } catch (err) {
+        pushLog('error', err instanceof Error ? err.message : 'Kunne ikke gemme enhedsindstillinger.');
+        pushToast('Kunne ikke gemme enhedsindstillinger.');
+      } finally {
+        protocol.setBusy(false);
+      }
+    },
+
     cancelCreate: async () => {
       if (protocol) await protocol.disconnect().catch(() => {});
       set({ screen: 'dashboard', active: null, connecting: null });
     },
 
     disconnect: async () => {
+      suppressNextDisconnect = true;
       if (protocol) await protocol.disconnect().catch(() => {});
-      set({ screen: 'dashboard', active: null, layout: [], editMode: false, sideMenuOpen: false });
+      suppressNextDisconnect = false;
+      set({
+        screen: 'dashboard',
+        active: null,
+        layout: [],
+        sliderValues: {},
+        editMode: false,
+        sideMenuOpen: false,
+        menuPage: null,
+        connectionLost: null,
+      });
     },
 
     removeSavedDevice: (deviceID) => {
       set({ savedDevices: removeDevice(deviceID) });
     },
 
+    clearSavedDevices: () => {
+      clearSavedDevicesStorage();
+      set({ savedDevices: [] });
+      pushToast('Gemte enheder ryddet.');
+    },
+
+    updateUsername: (username) => {
+      const user = get().user;
+      const trimmed = username.trim();
+      if (!user || !trimmed) return;
+      const next = { ...user, username: trimmed };
+      saveUser(next);
+      set({ user: next });
+      pushToast('Brugernavn gemt.');
+    },
+
+    reconnectLostDevice: async () => {
+      const saved = get().connectionLost;
+      if (!saved) return;
+      set({ connectionLost: null });
+      try {
+        if (navigator.bluetooth?.getDevices) {
+          const permitted = await navigator.bluetooth.getDevices();
+          const match = permitted.find((d) => d.id === saved.deviceID);
+          if (match) {
+            await get().connectToDevice(match, saved);
+            return;
+          }
+        }
+      } catch {
+        /* fall through to chooser */
+      }
+      pushLog('info', 'Genforbind: vælg enheden i browserens liste.');
+      await get().findDevice();
+    },
+
+    dismissConnectionLost: () => set({ connectionLost: null }),
+
     sendButton: (name) => protocol?.enqueueButton(name),
-    sendSlider: (name, value) => protocol?.enqueueSlider(name, value),
+    sendSlider: (name, value) => {
+      set((s) => ({ sliderValues: { ...s.sliderValues, [name]: value } }));
+      protocol?.enqueueSlider(name, value);
+    },
 
     saveLayout: async (controls) => {
       if (!protocol) return;
@@ -313,11 +471,15 @@ export const useStore = create<AppState>((set, get) => {
       }
     },
 
-    setEditMode: (on) => set({ editMode: on, sideMenuOpen: false }),
+    setEditMode: (on) => set({ editMode: on, sideMenuOpen: false, menuPage: null }),
     toggleSideMenu: (open) => set((s) => ({ sideMenuOpen: open ?? !s.sideMenuOpen })),
-    toggleDebugger: (open) => set((s) => ({ debuggerOpen: open ?? !s.debuggerOpen, sideMenuOpen: false })),
+    toggleDebugger: (open) => set((s) => ({ debuggerOpen: open ?? !s.debuggerOpen, sideMenuOpen: false, menuPage: null })),
+    openMenuPage: (page) => set({ menuPage: page, sideMenuOpen: false }),
+    closeMenuPage: () => set({ menuPage: null }),
     clearLogs: () => set({ logs: [] }),
     log: (level, message) => pushLog(level, message),
+    askConfirm: (dialog) => set({ confirmDialog: dialog }),
+    closeConfirm: () => set({ confirmDialog: null }),
     showToast: (message) => pushToast(message),
     dismissToast: () => {
       if (toastTimer) clearTimeout(toastTimer);
