@@ -21,7 +21,7 @@ export function DashboardScreen() {
 
   return (
     <div className="screen">
-      <TopBar title="Hovedmenu" onMenu={() => toggleSideMenu(true)} />
+      <TopBar title="Hovedmenu" onMenu={() => toggleSideMenu()} />
 
       <div className="content dash-content">
         {!supported && (
@@ -102,7 +102,7 @@ function DeviceCard({
         <span className="device-tile-name">{device.deviceName}</span>
       </button>
       <button className="device-tile-del" type="button" onClick={onDelete} aria-label="Slet enhed">
-        <Glyph name="delete" size={18} />
+        <Glyph name="delete" size={36} />
       </button>
     </div>
   );

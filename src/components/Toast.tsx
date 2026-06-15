@@ -7,8 +7,8 @@ export function Toast() {
   if (!toast) return null;
 
   return (
-    <div className="toast" role="alert" onClick={dismiss}>
-      {toast}
+    <div key={toast.id} className="toast" role="alert" onClick={dismiss}>
+      {toast.message}
     </div>
   );
 }

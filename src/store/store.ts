@@ -48,7 +48,7 @@ interface AppState {
 
   connecting: ConnectingInfo | null;
   progress: { value: number; label: string };
-  toast: string | null;
+  toast: { message: string; id: number } | null;
 
   active: ActiveDevice | null;
   layout: Control[];
@@ -89,6 +89,7 @@ interface AppState {
 
 let protocol: PicoProtocol | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let toastCounter = 0;
 
 function timestamp(): string {
   return new Date().toLocaleTimeString('da-DK', { hour12: false });
@@ -103,7 +104,10 @@ export const useStore = create<AppState>((set, get) => {
 
   function pushToast(message: string): void {
     if (toastTimer) clearTimeout(toastTimer);
-    set({ toast: message });
+    toastCounter += 1;
+    // New id every time so the Toast remounts and replays its animation even
+    // if the same message is already on screen.
+    set({ toast: { message, id: toastCounter } });
     toastTimer = setTimeout(() => set({ toast: null }), 4500);
   }
 

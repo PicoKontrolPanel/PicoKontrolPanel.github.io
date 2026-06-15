@@ -6,7 +6,7 @@ export function SplashScreen() {
       <img
         src={splashUrl}
         alt="Pico Kontrol Panel"
-        style={{ width: 'min(75vmin, 720px)', objectFit: 'contain' }}
+        style={{ width: 'min(45vmin, 420px)', objectFit: 'contain' }}
       />
     </div>
   );

@@ -328,7 +328,7 @@ button:disabled {
   transform: scale(0.94);
 }
 
-/* ---- Dashboard device list (2-column tiles) ---- */
+/* ---- Dashboard device list: 2 columns on thin displays, 3 on large ---- */
 .device-list {
   flex: 1;
   display: grid;
@@ -337,6 +337,12 @@ button:disabled {
   align-content: start;
   min-height: 0;
   overflow-y: auto;
+}
+
+@media (min-width: 720px) {
+  .device-list {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 .device-list-empty {
@@ -396,11 +402,7 @@ button:disabled {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.9);
-  color: var(--red);
+  color: var(--white);
   display: grid;
   place-items: center;
 }
@@ -794,9 +796,9 @@ button:disabled {
   line-height: 1.4;
 }
 
-/* ---- Dashboard: let the device panel extend below the FAB ---- */
+/* ---- Dashboard: keep the device panel a little above the FAB ---- */
 .dash-content {
-  padding-bottom: clamp(8px, 1vh, 12px);
+  padding-bottom: clamp(92px, 13vh, 124px);
 }
 
 /* ---- Transient toast (non-blocking error/status, no layout shift) ---- */

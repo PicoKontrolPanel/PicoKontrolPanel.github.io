@@ -24,7 +24,7 @@ export function ControlPanelScreen() {
 
   return (
     <div className="screen control-screen">
-      <TopBar title="Kontrol Panel" onMenu={() => toggleSideMenu(true)} />
+      <TopBar title="Kontrol Panel" onMenu={() => toggleSideMenu()} />
 
       <div className="controls-area-wrap">
         <div className="controls-area" ref={areaRef}>
