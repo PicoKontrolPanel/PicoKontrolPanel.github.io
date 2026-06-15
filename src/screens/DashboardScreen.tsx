@@ -10,7 +10,6 @@ type Page = 'mine' | 'andre';
 
 export function DashboardScreen() {
   const savedDevices = useStore((s) => s.savedDevices);
-  const connectionError = useStore((s) => s.connectionError);
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
   const findDevice = useStore((s) => s.findDevice);
   const removeSavedDevice = useStore((s) => s.removeSavedDevice);
@@ -24,14 +23,13 @@ export function DashboardScreen() {
     <div className="screen">
       <TopBar title="Hovedmenu" onMenu={() => toggleSideMenu(true)} />
 
-      <div className="content">
+      <div className="content dash-content">
         {!supported && (
           <div className="notice">
             Web Bluetooth er ikke tilgængelig her. På iPhone/iPad: åbn siden i Bluefy-browseren. På
             Android: brug Chrome.
           </div>
         )}
-        {connectionError && <div className="banner-error">{connectionError}</div>}
 
         <div className="segmented">
           <button
@@ -98,19 +96,13 @@ function DeviceCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="device-card">
-      <img src={deviceIconUrl(device.deviceIconID)} alt="" />
-      <button
-        type="button"
-        onClick={onConnect}
-        disabled={disabled}
-        style={{ flex: 1, textAlign: 'left' }}
-      >
-        <div className="dc-name">{device.deviceName}</div>
-        <div className="dc-sub">{device.isOwnedByMe ? 'Min enhed' : 'Andens enhed'}</div>
+    <div className="device-tile-wrap">
+      <button className="device-tile" type="button" onClick={onConnect} disabled={disabled}>
+        <img className="device-tile-icon" src={deviceIconUrl(device.deviceIconID)} alt="" />
+        <span className="device-tile-name">{device.deviceName}</span>
       </button>
-      <button className="card-delete" type="button" onClick={onDelete} aria-label="Slet enhed">
-        <Glyph name="delete" size={22} />
+      <button className="device-tile-del" type="button" onClick={onDelete} aria-label="Slet enhed">
+        <Glyph name="delete" size={18} />
       </button>
     </div>
   );

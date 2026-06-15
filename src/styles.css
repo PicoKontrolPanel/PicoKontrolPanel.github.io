@@ -7,8 +7,10 @@
   --grey: #d8d8d8;
   --grey-mid: #cfcfcf;
   --disabled: #808080;
-  --text: #2a2a2a;
-  --muted: #8a8a8a;
+  /* Warm dark grey rather than pure black — sits better with the red/white/grey theme. */
+  --text: #4a4042;
+  --muted: #9a8f90;
+  --topbar-h: clamp(58px, 8vh, 84px);
   --scrim: rgba(0, 0, 0, 0.39);
   --green: #3fae5a;
   --radius: 36px;
@@ -88,14 +90,16 @@ button:disabled {
 
 /* ---- Top bar ---- */
 .topbar {
+  position: relative;
+  z-index: 10; /* stays above the side menu + scrim */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   background: var(--red);
   color: var(--white);
-  padding: clamp(12px, 1.4vw, 22px) clamp(16px, 3vw, 44px);
-  min-height: clamp(58px, 8vh, 84px);
+  padding: 0 clamp(16px, 3vw, 44px);
+  height: var(--topbar-h);
   flex: 0 0 auto;
 }
 
@@ -324,78 +328,95 @@ button:disabled {
   transform: scale(0.94);
 }
 
-/* ---- Dashboard device list ---- */
+/* ---- Dashboard device list (2-column tiles) ---- */
 .device-list {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 12px;
+  align-content: start;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .device-list-empty {
-  flex: 1;
+  grid-column: 1 / -1;
   display: grid;
   place-items: center;
   color: var(--muted);
   text-align: center;
-  padding: 30px;
+  padding: 40px 20px;
 }
 
-.device-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border: 2px solid var(--red-soft);
-  border-radius: var(--radius-sm);
-  background: var(--white);
-  text-align: left;
+.device-tile-wrap {
+  position: relative;
+}
+
+.device-tile {
   width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(8px, 1.5vh, 16px);
+  padding: 14px;
+  background: var(--red);
+  color: var(--white);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 16px rgba(198, 80, 78, 0.3);
+  transition: transform 120ms ease, background 120ms ease;
 }
 
-.device-card:disabled {
-  opacity: 0.55;
+.device-tile:active:not(:disabled) {
+  transform: translateY(1px) scale(0.99);
 }
 
-.device-card img {
-  width: 46px;
-  height: 46px;
+.device-tile:disabled {
+  background: var(--grey);
+  box-shadow: none;
+}
+
+.device-tile-icon {
+  width: clamp(46px, 42%, 96px);
+  aspect-ratio: 1;
   object-fit: contain;
+  filter: brightness(0) invert(1);
 }
 
-.device-card .dc-name {
-  flex: 1;
+.device-tile-name {
   font-weight: 800;
-  font-size: 1.1rem;
+  font-size: clamp(1rem, 0.9rem + 0.4vw, 1.3rem);
+  text-align: center;
+  line-height: 1.1;
+  word-break: break-word;
 }
 
-.device-card .dc-sub {
-  font-size: 0.78rem;
-  color: var(--muted);
-  font-weight: 600;
-}
-
-.dot {
-  width: 12px;
-  height: 12px;
+.device-tile-del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  background: var(--disabled);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--red);
+  display: grid;
+  place-items: center;
 }
 
-.dot.on {
-  background: var(--green);
-}
-
-.card-delete {
-  color: var(--disabled);
-  display: inline-flex;
+.device-tile-del:active {
+  transform: scale(0.92);
 }
 
 /* ---- Side menu ---- */
+/* Scrim + menu start below the top bar so the bar stays visible and uncovered. */
 .scrim {
   position: absolute;
-  inset: 0;
+  top: var(--topbar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: var(--scrim);
   z-index: 8;
   animation: fade 200ms ease;
@@ -412,7 +433,7 @@ button:disabled {
 
 .sidemenu {
   position: absolute;
-  top: 0;
+  top: var(--topbar-h);
   right: 0;
   bottom: 0;
   width: clamp(68px, 7vw, 96px);
@@ -730,30 +751,32 @@ button:disabled {
 
 /* ---- Debugger ---- */
 .terminal {
-  background: #14161a;
-  color: #d7dde3;
+  background: var(--grey-light);
+  color: var(--text);
+  border: 2px solid var(--grey);
   border-radius: var(--radius-sm);
   font-family: 'Consolas', 'SFMono-Regular', monospace;
   font-size: 0.82rem;
-  padding: 12px;
-  height: 320px;
+  padding: 14px;
+  height: clamp(340px, 56vh, 580px);
   overflow-y: auto;
 }
 
 .term-line {
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
 .term-error {
-  color: #ff7a7a;
+  color: var(--red);
+  font-weight: 700;
 }
 .term-success {
-  color: #7ddf91;
+  color: #2f8f49;
 }
 .term-warning {
-  color: #f4c56a;
+  color: #b07208;
 }
 
 .row {
@@ -771,10 +794,38 @@ button:disabled {
   line-height: 1.4;
 }
 
-.banner-error {
+/* ---- Dashboard: let the device panel extend below the FAB ---- */
+.dash-content {
+  padding-bottom: clamp(8px, 1vh, 12px);
+}
+
+/* ---- Transient toast (non-blocking error/status, no layout shift) ---- */
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(20px, 4vh, 40px);
+  transform: translateX(-50%);
+  max-width: min(90vw, 460px);
   background: var(--red);
   color: var(--white);
+  padding: 14px 20px;
   border-radius: var(--radius-sm);
-  padding: 12px 16px;
   font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  z-index: 20;
+  cursor: pointer;
+  animation: toast-in 220ms ease;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }

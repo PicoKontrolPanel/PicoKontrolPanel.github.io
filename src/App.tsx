@@ -8,6 +8,7 @@ import { CreateDeviceScreen } from './screens/CreateDeviceScreen';
 import { ControlPanelScreen } from './screens/ControlPanelScreen';
 import { SideMenu } from './components/SideMenu';
 import { Debugger } from './components/Debugger';
+import { Toast } from './components/Toast';
 
 function App() {
   const screen = useStore((s) => s.screen);
@@ -31,6 +32,7 @@ function App() {
 
       {sideMenuOpen && <SideMenu />}
       {debuggerOpen && <Debugger />}
+      <Toast />
     </div>
   );
 }

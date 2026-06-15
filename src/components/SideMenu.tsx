@@ -16,9 +16,6 @@ export function SideMenu() {
     <>
       <div className="scrim" onClick={() => toggleSideMenu(false)} />
       <nav className="sidemenu" aria-label="Sidemenu">
-        <button className="iconbtn" type="button" onClick={() => toggleSideMenu(false)} aria-label="Luk">
-          <Glyph name="menu" />
-        </button>
         <button className="iconbtn" type="button" aria-label="Bruger">
           <Glyph name="user" />
         </button>

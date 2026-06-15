@@ -48,7 +48,7 @@ interface AppState {
 
   connecting: ConnectingInfo | null;
   progress: { value: number; label: string };
-  connectionError: string | null;
+  toast: string | null;
 
   active: ActiveDevice | null;
   layout: Control[];
@@ -83,9 +83,12 @@ interface AppState {
   toggleDebugger: (open?: boolean) => void;
   clearLogs: () => void;
   log: (level: LogLevel, message: string) => void;
+  showToast: (message: string) => void;
+  dismissToast: () => void;
 }
 
 let protocol: PicoProtocol | null = null;
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 function timestamp(): string {
   return new Date().toLocaleTimeString('da-DK', { hour12: false });
@@ -96,6 +99,12 @@ export const useStore = create<AppState>((set, get) => {
     set((s) => ({
       logs: [{ level, message, time: timestamp() }, ...s.logs].slice(0, 200),
     }));
+  }
+
+  function pushToast(message: string): void {
+    if (toastTimer) clearTimeout(toastTimer);
+    set({ toast: message });
+    toastTimer = setTimeout(() => set({ toast: null }), 4500);
   }
 
   protocol = new PicoProtocol({
@@ -121,7 +130,7 @@ export const useStore = create<AppState>((set, get) => {
     savedDevices: [],
     connecting: null,
     progress: { value: 0, label: '' },
-    connectionError: null,
+    toast: null,
     active: null,
     layout: [],
     logs: [],
@@ -165,7 +174,6 @@ export const useStore = create<AppState>((set, get) => {
 
       set({
         screen: 'connection',
-        connectionError: null,
         connecting: { name: displayName(device.name) || known?.deviceName || 'Pico', iconID: known?.deviceIconID ?? 0 },
         progress: { value: 0, label: 'Forbinder...' },
       });
@@ -178,7 +186,8 @@ export const useStore = create<AppState>((set, get) => {
 
         if (result.kind === 'denied') {
           pushLog('warning', 'Adgang nægtet (privat enhed).');
-          set({ connectionError: 'Adgang nægtet — denne enhed er privat.', screen: 'dashboard', connecting: null });
+          pushToast('Adgang nægtet — denne enhed er privat.');
+          set({ screen: 'dashboard', connecting: null });
           await protocol.disconnect();
           return;
         }
@@ -229,7 +238,8 @@ export const useStore = create<AppState>((set, get) => {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Forbindelsen mislykkedes.';
         pushLog('error', message);
-        set({ connectionError: message, screen: 'dashboard', connecting: null });
+        pushToast('Forbindelsen mislykkedes.');
+        set({ screen: 'dashboard', connecting: null });
         await protocol.disconnect().catch(() => {});
       }
     },
@@ -263,7 +273,8 @@ export const useStore = create<AppState>((set, get) => {
         protocol.setBusy(false);
         const message = err instanceof Error ? err.message : 'Oprettelse mislykkedes.';
         pushLog('error', message);
-        set({ connectionError: message, screen: 'dashboard' });
+        pushToast('Oprettelse mislykkedes.');
+        set({ screen: 'dashboard' });
         await protocol.disconnect().catch(() => {});
       }
     },
@@ -303,5 +314,10 @@ export const useStore = create<AppState>((set, get) => {
     toggleDebugger: (open) => set((s) => ({ debuggerOpen: open ?? !s.debuggerOpen, sideMenuOpen: false })),
     clearLogs: () => set({ logs: [] }),
     log: (level, message) => pushLog(level, message),
+    showToast: (message) => pushToast(message),
+    dismissToast: () => {
+      if (toastTimer) clearTimeout(toastTimer);
+      set({ toast: null });
+    },
   };
 });
