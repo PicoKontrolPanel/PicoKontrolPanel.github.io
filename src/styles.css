@@ -16,9 +16,10 @@
   --radius: 36px;
   --radius-sm: 22px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-  /* Max width for "page" content (forms/lists). The control panel ignores this
-     and uses the full viewport so large/wide grids get the whole screen. */
+  /* Max width for "page" content (forms). */
   --content-max: 720px;
+  /* Shared wide max for the dashboard device area and the control panel. */
+  --wide-max: 980px;
   color-scheme: light;
 }
 
@@ -330,7 +331,7 @@ button:disabled {
 
 /* ---- Dashboard: wider content window so wide displays fit up to 4 columns ---- */
 .dashboard-screen {
-  --content-max: 980px;
+  --content-max: var(--wide-max);
 }
 
 /* Device list: exactly 2 columns on thin displays; on wider ones the tiles keep
@@ -682,6 +683,9 @@ button:disabled {
 
 .controls-area-wrap {
   flex: 1;
+  width: 100%;
+  max-width: var(--wide-max);
+  margin-inline: auto;
   padding: 14px;
   min-height: 0;
 }
@@ -707,7 +711,9 @@ button:disabled {
 
 .control {
   position: absolute;
-  transform: translate(-50%, -50%) rotate(var(--rot, 0deg));
+  /* Box is axis-aligned and sized from the rotated span; rotation is handled
+     inside the control (slider fill direction + text), never on the box. */
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -741,6 +747,46 @@ button:disabled {
 .control.colliding .control-slider {
   background: var(--disabled);
   border-color: var(--disabled);
+}
+
+/* ---- Edit mode: toolbar band above the area, actions band below ---- */
+.edit-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.edit-band {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: var(--wide-max);
+  margin-inline: auto;
+  padding: 10px 14px;
+}
+
+.edit-toolbar-band {
+  min-height: clamp(54px, 8vh, 70px);
+}
+
+.edit-actions-band {
+  gap: 12px;
+}
+
+.edit-hint {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
 }
 
 .add-lists {

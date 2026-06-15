@@ -2,7 +2,9 @@ import type React from 'react';
 import { useMemo, useRef, useState } from 'react';
 import { Glyph } from '../assets/icons';
 import { AddModal } from './AddModal';
+import { useElementSize } from '../lib/useElementSize';
 import {
+  computeGeometry,
   controlRect,
   gridDots,
   rotatedSpan,
@@ -14,11 +16,6 @@ import { useStore } from '../store/store';
 
 const DEFAULT_SPAN_X = 4;
 const DEFAULT_SPAN_Y = 5;
-
-interface EditCanvasProps {
-  geo: GridGeometry;
-  canEdit: boolean;
-}
 
 interface Box {
   x0: number;
@@ -48,10 +45,25 @@ function resnap(c: Control, geo: GridGeometry): Control {
   return { ...c, centerX2: snapped.centerX2, centerY2: snapped.centerY2 };
 }
 
-export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
+/** Upright label content for edit-mode controls (vertical stack for rotated sliders). */
+function editLabel(c: Control): React.ReactNode {
+  const vertical = c.type === 'slider' && (c.rotation === 90 || c.rotation === 270);
+  if (!vertical) return c.name;
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.02 }}>
+      {[...c.name].map((ch, i) => (
+        <span key={i}>{ch === ' ' ? ' ' : ch}</span>
+      ))}
+    </span>
+  );
+}
+
+export function EditCanvas() {
   const layout = useStore((s) => s.layout);
+  const active = useStore((s) => s.active);
   const saveLayout = useStore((s) => s.saveLayout);
   const setEditMode = useStore((s) => s.setEditMode);
+  const canEdit = !!active?.canEdit;
 
   const [draft, setDraft] = useState<Control[]>(() => layout.map((c) => ({ ...c })));
   const [selected, setSelected] = useState<string | null>(null);
@@ -59,13 +71,16 @@ export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
   const [dragName, setDragName] = useState<string | null>(null);
   const [dragPx, setDragPx] = useState<{ cx: number; cy: number } | null>(null);
   const [saving, setSaving] = useState(false);
-  const areaRef = useRef<HTMLDivElement>(null);
 
-  const dots = useMemo(() => gridDots(geo), [geo]);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const size = useElementSize(areaRef);
+  const ready = size.w > 0 && size.h > 0;
+  const geo = computeGeometry(size.w, size.h, active?.gridCols, active?.gridRows);
+
+  const dots = useMemo(() => (ready ? gridDots(geo) : []), [geo, ready]);
   const placed = draft.filter(isPlaced);
   const unplaced = draft.filter((c) => !isPlaced(c));
 
-  // Collision set.
   const colliding = useMemo(() => {
     const set = new Set<string>();
     for (let i = 0; i < placed.length; i += 1) {
@@ -104,9 +119,6 @@ export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
     const area = areaRef.current;
     if (!area) return;
     const r = area.getBoundingClientRect();
-    // r is in visual (scaled) pixels; clientWidth/Height are layout pixels.
-    // Convert the pointer position into the frame's unscaled layout space so it
-    // matches the grid geometry regardless of the viewport scale factor.
     const sx = area.clientWidth / r.width;
     const sy = area.clientHeight / r.height;
     setDragPx({
@@ -151,16 +163,15 @@ export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
     setAddOpen(false);
     const base = draft.find((c) => c.name === name);
     if (!base) return;
-    const placedControl: Control = {
+    const snapped = snapCenter(geo.areaW / 2, geo.areaH / 2, DEFAULT_SPAN_X, DEFAULT_SPAN_Y, geo);
+    update(name, () => ({
       ...base,
       spanX: DEFAULT_SPAN_X,
       spanY: DEFAULT_SPAN_Y,
       rotation: 0,
-      centerX2: 0,
-      centerY2: 0,
-    };
-    const snapped = snapCenter(geo.areaW / 2, geo.areaH / 2, DEFAULT_SPAN_X, DEFAULT_SPAN_Y, geo);
-    update(name, () => ({ ...placedControl, centerX2: snapped.centerX2, centerY2: snapped.centerY2 }));
+      centerX2: snapped.centerX2,
+      centerY2: snapped.centerY2,
+    }));
     setSelected(name);
   }
 
@@ -172,114 +183,134 @@ export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
   }
 
   return (
-    <div
-      ref={areaRef}
-      style={{ position: 'absolute', inset: 0, touchAction: 'none' }}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerDown={() => setSelected(null)}
-    >
-      {/* dot grid */}
-      <svg width={geo.areaW} height={geo.areaH} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-        {dots.map((d, i) => (
-          <circle key={i} cx={d.x} cy={d.y} r={2.5} fill="rgba(198,80,78,0.45)" />
-        ))}
-      </svg>
-
-      {/* controls */}
-      {placed.map((c) => {
-        const isDragging = dragName === c.name && dragPx;
-        const rect = controlRect(c, geo);
-        if (!rect) return null;
-        const cx = isDragging ? dragPx!.cx : rect.cx;
-        const cy = isDragging ? dragPx!.cy : rect.cy;
-        const style = {
-          left: cx,
-          top: cy,
-          width: rect.width,
-          height: rect.height,
-          '--rot': `${c.rotation}deg`,
-          outline: selected === c.name ? '3px solid var(--text)' : 'none',
-          outlineOffset: 2,
-        } as React.CSSProperties;
-        return (
-          <div
-            key={c.name}
-            className={`control ${colliding.has(c.name) ? 'colliding' : ''}`}
-            style={style}
-            onPointerDown={(e) => onPointerDown(e, c)}
-          >
-            <div
-              className={c.type === 'button' ? 'control-button' : 'control-slider'}
-              style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: c.type === 'slider' ? 'var(--red)' : undefined, fontWeight: 800 }}
+    <div className="edit-view">
+      {/* toolbar band (above the area, under the top bar) */}
+      <div className="edit-band edit-toolbar-band">
+        {selectedControl && isPlaced(selectedControl) ? (
+          <div className="edit-toolbar" onPointerDown={(e) => e.stopPropagation()}>
+            <ToolBtn label="⟲" onClick={() => rotate(selectedControl.name)} />
+            <ToolBtn label="W−" onClick={() => resize(selectedControl.name, 'x', -1)} />
+            <ToolBtn label="W+" onClick={() => resize(selectedControl.name, 'x', 1)} />
+            <ToolBtn label="H−" onClick={() => resize(selectedControl.name, 'y', -1)} />
+            <ToolBtn label="H+" onClick={() => resize(selectedControl.name, 'y', 1)} />
+            <button
+              className="iconbtn"
+              style={{ color: 'var(--red)' }}
+              onClick={() => remove(selectedControl.name)}
+              aria-label="Slet"
             >
-              {c.name}
-            </div>
+              <Glyph name="delete" size={24} />
+            </button>
           </div>
-        );
-      })}
+        ) : (
+          <span className="edit-hint">Vælg en kontrol for at redigere</span>
+        )}
+      </div>
 
-      {/* selection toolbar */}
-      {selectedControl && isPlaced(selectedControl) && (
+      {/* play area (shrunk to leave room for the bands) */}
+      <div className="controls-area-wrap">
         <div
-          style={{
-            position: 'absolute',
-            top: 8,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            gap: 6,
-            background: 'var(--white)',
-            border: '2px solid var(--red)',
-            borderRadius: 16,
-            padding: 6,
-            zIndex: 6,
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
+          className="controls-area"
+          ref={areaRef}
+          style={{ touchAction: 'none' }}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerDown={() => setSelected(null)}
         >
-          <ToolBtn label="⟲" onClick={() => rotate(selectedControl.name)} />
-          <ToolBtn label="W-" onClick={() => resize(selectedControl.name, 'x', -1)} />
-          <ToolBtn label="W+" onClick={() => resize(selectedControl.name, 'x', 1)} />
-          <ToolBtn label="H-" onClick={() => resize(selectedControl.name, 'y', -1)} />
-          <ToolBtn label="H+" onClick={() => resize(selectedControl.name, 'y', 1)} />
-          <button className="iconbtn" style={{ color: 'var(--red)' }} onClick={() => remove(selectedControl.name)} aria-label="Slet">
-            <Glyph name="delete" size={22} />
-          </button>
+          {ready && (
+            <>
+              <svg
+                width={geo.areaW}
+                height={geo.areaH}
+                style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
+              >
+                {dots.map((d, i) => (
+                  <circle key={i} cx={d.x} cy={d.y} r={2.5} fill="rgba(198,80,78,0.45)" />
+                ))}
+              </svg>
+
+              {placed.map((c) => {
+                const isDragging = dragName === c.name && dragPx;
+                const rect = controlRect(c, geo);
+                if (!rect) return null;
+                const cx = isDragging ? dragPx!.cx : rect.cx;
+                const cy = isDragging ? dragPx!.cy : rect.cy;
+                const style: React.CSSProperties = {
+                  left: cx,
+                  top: cy,
+                  width: rect.width,
+                  height: rect.height,
+                  outline: selected === c.name ? '3px solid var(--text)' : 'none',
+                  outlineOffset: 2,
+                };
+                return (
+                  <div
+                    key={c.name}
+                    className={`control ${colliding.has(c.name) ? 'colliding' : ''}`}
+                    style={style}
+                    onPointerDown={(e) => onPointerDown(e, c)}
+                  >
+                    <div
+                      className={c.type === 'button' ? 'control-button' : 'control-slider'}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: c.type === 'slider' ? 'var(--red)' : undefined,
+                        fontWeight: 800,
+                      }}
+                    >
+                      {editLabel(c)}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {canEdit && (
+                <button
+                  type="button"
+                  className="fab"
+                  style={{ width: 52, height: 52, right: 12, bottom: 12 }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => setAddOpen(true)}
+                  aria-label="Tilføj kontrol"
+                >
+                  <Glyph name="plus" size={24} />
+                </button>
+              )}
+
+              {saving && (
+                <div className="overlay">
+                  <div className="spinner" />
+                </div>
+              )}
+            </>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* add button */}
-      {canEdit && (
+      {/* actions band (below the area) */}
+      <div className="edit-band edit-actions-band">
         <button
+          className="btn btn-outline"
+          style={{ flex: 1 }}
           type="button"
-          className="fab"
-          style={{ width: 52, height: 52, right: 12, bottom: 70 }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => setAddOpen(true)}
-          aria-label="Tilføj kontrol"
+          onClick={() => setEditMode(false)}
+          disabled={saving}
         >
-          <Glyph name="plus" size={24} />
-        </button>
-      )}
-
-      {/* save / discard */}
-      <div
-        style={{ position: 'absolute', left: 12, right: 12, bottom: 12, display: 'flex', gap: 10, zIndex: 6 }}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <button className="btn btn-outline btn-block" type="button" onClick={() => setEditMode(false)} disabled={saving}>
           Annuller
         </button>
-        <button className="btn btn-primary btn-block" type="button" onClick={save} disabled={hasCollision || saving}>
+        <button
+          className="btn btn-primary"
+          style={{ flex: 1 }}
+          type="button"
+          onClick={save}
+          disabled={hasCollision || saving}
+        >
           {saving ? 'Gemmer...' : 'Gem'}
         </button>
       </div>
-
-      {saving && (
-        <div className="overlay">
-          <div className="spinner" />
-        </div>
-      )}
 
       {addOpen && <AddModal unplaced={unplaced} onAdd={add} onClose={() => setAddOpen(false)} />}
     </div>
@@ -292,13 +323,14 @@ function ToolBtn({ label, onClick }: { label: string; onClick: () => void }) {
       type="button"
       onClick={onClick}
       style={{
-        minWidth: 34,
-        height: 34,
-        borderRadius: 10,
+        minWidth: 38,
+        height: 38,
+        borderRadius: 12,
         background: 'var(--red)',
         color: 'var(--white)',
         fontWeight: 800,
-        fontSize: 13,
+        fontSize: 14,
+        padding: '0 8px',
       }}
     >
       {label}

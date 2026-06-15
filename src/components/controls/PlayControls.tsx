@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useRef, useState } from 'react';
-import type { Control } from '../../lib/types';
+import type { Control, Rotation } from '../../lib/types';
 import type { ControlRect } from '../../grid/geometry';
 
 interface PlacedProps {
@@ -12,13 +12,12 @@ interface PlacedProps {
 }
 
 export function PlayControl({ control, rect, disabled, onButton, onSlider }: PlacedProps) {
-  const style = {
+  const style: React.CSSProperties = {
     left: rect.cx,
     top: rect.cy,
     width: rect.width,
     height: rect.height,
-    '--rot': `${control.rotation}deg`,
-  } as React.CSSProperties;
+  };
 
   if (control.type === 'button') {
     return (
@@ -53,6 +52,18 @@ export function PlayControl({ control, rect, disabled, onButton, onSlider }: Pla
   );
 }
 
+/** Label content: horizontal text, or an upright top-to-bottom character stack. */
+function labelContent(name: string, vertical: boolean): React.ReactNode {
+  if (!vertical) return name;
+  return (
+    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.02 }}>
+      {[...name].map((ch, i) => (
+        <span key={i}>{ch === ' ' ? ' ' : ch}</span>
+      ))}
+    </span>
+  );
+}
+
 function SliderControl({
   control,
   disabled,
@@ -69,19 +80,19 @@ function SliderControl({
   const trackRef = useRef<HTMLDivElement>(null);
   const [value, setValue] = useState(0);
   const lastSent = useRef(0);
-  const vertical = control.rotation === 90 || control.rotation === 270;
+  const rot: Rotation = control.rotation;
+  const vertical = rot === 90 || rot === 270;
+  const fontSize = Math.max(11, Math.min(width, height) * 0.24);
 
   function fractionFromEvent(e: React.PointerEvent): number {
     const el = trackRef.current;
     if (!el) return 0;
     const r = el.getBoundingClientRect();
     let f: number;
-    if (vertical) {
-      f = 1 - (e.clientY - r.top) / r.height;
-    } else {
-      f = (e.clientX - r.left) / r.width;
-    }
-    if (control.rotation === 180) f = 1 - f;
+    if (rot === 0) f = (e.clientX - r.left) / r.width;
+    else if (rot === 180) f = 1 - (e.clientX - r.left) / r.width;
+    else if (rot === 90) f = 1 - (e.clientY - r.top) / r.height;
+    else f = (e.clientY - r.top) / r.height; // 270
     return Math.max(0, Math.min(1, f));
   }
 
@@ -95,11 +106,44 @@ function SliderControl({
     }
   }
 
+  // Fill grows from: left (0), bottom (90), right (180), top (270).
+  // The white label inside the fill is anchored to the same edge and sized to
+  // the full box, so it overlays the red base label exactly (masked reveal).
+  let fillStyle: React.CSSProperties;
+  let innerAnchor: React.CSSProperties;
+  if (rot === 0) {
+    fillStyle = { left: 0, top: 0, bottom: 0, width: `${value}%` };
+    innerAnchor = { left: 0, top: 0 };
+  } else if (rot === 180) {
+    fillStyle = { right: 0, top: 0, bottom: 0, width: `${value}%` };
+    innerAnchor = { right: 0, top: 0 };
+  } else if (rot === 90) {
+    fillStyle = { left: 0, right: 0, bottom: 0, height: `${value}%` };
+    innerAnchor = { left: 0, bottom: 0 };
+  } else {
+    fillStyle = { left: 0, right: 0, top: 0, height: `${value}%` };
+    innerAnchor = { left: 0, top: 0 };
+  }
+
+  const labelBase: React.CSSProperties = {
+    position: 'absolute',
+    width: `${width}px`,
+    height: `${height}px`,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 800,
+    fontSize,
+    pointerEvents: 'none',
+  };
+
+  const content = labelContent(control.name, vertical);
+
   return (
     <div
       ref={trackRef}
       className="control-slider"
-      style={{ width: '100%', height: '100%', position: 'relative', touchAction: 'none' }}
+      style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', touchAction: 'none' }}
       onPointerDown={(e) => {
         if (disabled) return;
         e.preventDefault();
@@ -111,30 +155,13 @@ function SliderControl({
         setFromEvent(e);
       }}
     >
-      <div
-        style={{
-          position: 'absolute',
-          background: 'var(--red)',
-          ...(vertical
-            ? { left: 0, right: 0, bottom: 0, height: `${value}%` }
-            : { top: 0, bottom: 0, left: 0, width: `${value}%` }),
-        }}
-      />
-      <span
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'grid',
-          placeItems: 'center',
-          fontWeight: 800,
-          color: 'var(--red)',
-          mixBlendMode: 'difference',
-          pointerEvents: 'none',
-          fontSize: Math.max(11, Math.min(width, height) * 0.22),
-        }}
-      >
-        {control.name}
-      </span>
+      {/* red base label, visible over the white track */}
+      <div style={{ ...labelBase, left: 0, top: 0, color: 'var(--red)' }}>{content}</div>
+
+      {/* red fill with a white label clipped to the filled region */}
+      <div style={{ position: 'absolute', background: 'var(--red)', overflow: 'hidden', ...fillStyle }}>
+        <div style={{ ...labelBase, ...innerAnchor, color: 'var(--white)' }}>{content}</div>
+      </div>
     </div>
   );
 }

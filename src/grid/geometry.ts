@@ -79,11 +79,15 @@ export function controlRect(control: Control, geo: GridGeometry): ControlRect | 
   ) {
     return null;
   }
+  // Size from the ROTATED span so the on-screen box matches the cell footprint
+  // used for collision/snapping. (Cells aren't square — stepX != stepY — so the
+  // box cannot be CSS-rotated; rotation is handled inside the control instead.)
+  const { w, h } = rotatedSpan(control.spanX, control.spanY, control.rotation);
   return {
     cx: centerToPxX(control.centerX2, geo),
     cy: centerToPxY(control.centerY2, geo),
-    width: control.spanX * geo.stepX,
-    height: control.spanY * geo.stepY,
+    width: w * geo.stepX,
+    height: h * geo.stepY,
   };
 }
 

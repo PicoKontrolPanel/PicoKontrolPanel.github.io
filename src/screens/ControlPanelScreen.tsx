@@ -26,32 +26,34 @@ export function ControlPanelScreen() {
     <div className="screen control-screen">
       <TopBar title="Kontrol Panel" onMenu={() => toggleSideMenu()} />
 
-      <div className="controls-area-wrap">
-        <div className="controls-area" ref={areaRef}>
-          {!ready ? (
-            <div className="overlay">
-              <div className="spinner" />
-            </div>
-          ) : editMode ? (
-            <EditCanvas geo={geo} canEdit={!!active?.canEdit} />
-          ) : (
-            placed.map((control) => {
-              const rect = controlRect(control, geo);
-              if (!rect) return null;
-              return (
-                <PlayControl
-                  key={control.name}
-                  control={control}
-                  rect={rect}
-                  disabled={false}
-                  onButton={sendButton}
-                  onSlider={sendSlider}
-                />
-              );
-            })
-          )}
+      {editMode ? (
+        <EditCanvas />
+      ) : (
+        <div className="controls-area-wrap">
+          <div className="controls-area" ref={areaRef}>
+            {!ready ? (
+              <div className="overlay">
+                <div className="spinner" />
+              </div>
+            ) : (
+              placed.map((control) => {
+                const rect = controlRect(control, geo);
+                if (!rect) return null;
+                return (
+                  <PlayControl
+                    key={control.name}
+                    control={control}
+                    rect={rect}
+                    disabled={false}
+                    onButton={sendButton}
+                    onSlider={sendSlider}
+                  />
+                );
+              })
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
