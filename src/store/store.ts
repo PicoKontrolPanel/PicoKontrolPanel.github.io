@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Control, SavedDevice, User } from '../lib/types';
 import { generateUserID } from '../lib/id';
 import {
+  clearAppData,
   clearSavedDevices as clearSavedDevicesStorage,
   loadSavedDevices,
   loadUser,
@@ -103,6 +104,7 @@ interface AppState {
   disconnect: () => Promise<void>;
   removeSavedDevice: (deviceID: string) => void;
   clearSavedDevices: () => void;
+  resetApplicationData: () => Promise<void>;
   updateUsername: (username: string) => void;
   reconnectLostDevice: () => Promise<void>;
   dismissConnectionLost: () => void;
@@ -418,6 +420,15 @@ export const useStore = create<AppState>((set, get) => {
       clearSavedDevicesStorage();
       set({ savedDevices: [] });
       pushToast('Gemte enheder ryddet.');
+    },
+
+    resetApplicationData: async () => {
+      suppressNextDisconnect = true;
+      if (protocol?.connected) {
+        await protocol.disconnect().catch(() => {});
+      }
+      clearAppData();
+      window.location.reload();
     },
 
     updateUsername: (username) => {

@@ -48,6 +48,15 @@ export function clearSavedDevices(): void {
   saveDevices([]);
 }
 
+export function clearAppData(): void {
+  try {
+    localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(DEVICES_KEY);
+  } catch {
+    /* storage unavailable - reset simply falls back to current memory */
+  }
+}
+
 /** Insert or update a saved device by deviceID. */
 export function upsertDevice(device: SavedDevice): SavedDevice[] {
   const devices = loadSavedDevices();

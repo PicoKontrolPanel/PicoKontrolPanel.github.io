@@ -171,6 +171,11 @@ button:disabled {
   border: 2px solid var(--red);
 }
 
+.btn-danger {
+  color: var(--red-dark);
+  border-color: var(--red-dark);
+}
+
 .btn-block {
   width: 100%;
 }

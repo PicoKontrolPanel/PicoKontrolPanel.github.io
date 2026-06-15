@@ -18,6 +18,7 @@ export function MenuPages() {
   const savedDevices = useStore((s) => s.savedDevices);
   const updateUsername = useStore((s) => s.updateUsername);
   const clearSavedDevices = useStore((s) => s.clearSavedDevices);
+  const resetApplicationData = useStore((s) => s.resetApplicationData);
   const saveDeviceSettings = useStore((s) => s.saveDeviceSettings);
   const setEditMode = useStore((s) => s.setEditMode);
   const askConfirm = useStore((s) => s.askConfirm);
@@ -63,6 +64,22 @@ export function MenuPages() {
           <InfoRow label="UUID" value={user?.userID ?? 'Ukendt'} />
           <button className="btn btn-primary btn-block" type="button" onClick={() => updateUsername(username)}>
             Gem bruger
+          </button>
+          <button
+            className="btn btn-outline btn-block btn-danger"
+            type="button"
+            onClick={() =>
+              askConfirm({
+                title: 'Start forfra',
+                message: 'Vil du slette brugeroplysninger og gemte enheder fra denne browser? Siden genindlæses bagefter.',
+                confirmLabel: 'Slet alt',
+                onConfirm: () => {
+                  resetApplicationData();
+                },
+              })
+            }
+          >
+            Slet brugerdata
           </button>
         </div>
       </Modal>
