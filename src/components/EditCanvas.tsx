@@ -2,7 +2,7 @@ import type React from 'react';
 import { useMemo, useRef, useState } from 'react';
 import { Glyph } from '../assets/icons';
 import { AddModal } from './AddModal';
-import { SliderVisual } from './controls/PlayControls';
+import { controlLabelFontSize, SliderVisual } from './controls/PlayControls';
 import { useElementSize } from '../lib/useElementSize';
 import {
   computeGeometry,
@@ -278,7 +278,14 @@ export function EditCanvas() {
                     {c.type === 'button' ? (
                       <div
                         className="control-button"
-                        style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', fontWeight: 800 }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          display: 'grid',
+                          placeItems: 'center',
+                          fontWeight: 800,
+                          fontSize: controlLabelFontSize(c.name, rect.width, rect.height),
+                        }}
                       >
                         {c.name}
                       </div>

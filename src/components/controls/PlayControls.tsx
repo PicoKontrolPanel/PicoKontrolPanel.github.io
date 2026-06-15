@@ -11,6 +11,51 @@ interface PlacedProps {
   onSlider: (name: string, value: number) => void;
 }
 
+const TEXT_PAD = 8;
+
+function clampTextSize(value: number): number {
+  return Math.max(5, Math.min(22, value));
+}
+
+export function controlLabelFontSize(name: string, width: number, height: number): number {
+  const chars = Math.max(1, name.length);
+  const byWidth = (width - TEXT_PAD * 2) / (chars * 0.58);
+  const byHeight = (height - TEXT_PAD * 2) * 0.48;
+  return clampTextSize(Math.min(byWidth, byHeight));
+}
+
+function sliderTextMetrics(
+  name: string,
+  width: number,
+  height: number,
+  vertical: boolean,
+  showEnds: boolean,
+): { fontSize: number; endFontSize: number; centerInset: React.CSSProperties } {
+  const chars = Math.max(1, name.length);
+  const endFontSize = showEnds
+    ? clampTextSize(Math.min(width / 4.6, height / 4.6, 12))
+    : 0;
+  const endReserve = showEnds ? endFontSize + TEXT_PAD : TEXT_PAD;
+
+  if (vertical) {
+    const availableH = Math.max(1, height - endReserve * 2);
+    const fontSize = clampTextSize(Math.min(width * 0.48, availableH / (chars * 1.04)));
+    return {
+      fontSize,
+      endFontSize,
+      centerInset: showEnds ? { top: endReserve, bottom: endReserve } : {},
+    };
+  }
+
+  const availableW = Math.max(1, width - endReserve * 4.2);
+  const fontSize = clampTextSize(Math.min(height * 0.42, availableW / (chars * 0.58)));
+  return {
+    fontSize,
+    endFontSize,
+    centerInset: showEnds ? { left: endReserve * 2.1, right: endReserve * 2.1 } : {},
+  };
+}
+
 export function PlayControl({ control, rect, disabled, onButton, onSlider }: PlacedProps) {
   const style: React.CSSProperties = {
     left: rect.cx,
@@ -26,7 +71,7 @@ export function PlayControl({ control, rect, disabled, onButton, onSlider }: Pla
           className="control-button"
           type="button"
           disabled={disabled}
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', fontSize: controlLabelFontSize(control.name, rect.width, rect.height) }}
           onPointerDown={(e) => {
             if (disabled) return;
             e.preventDefault();
@@ -94,6 +139,7 @@ function SliderTextLayer({
   color,
   fontSize,
   endFontSize,
+  centerInset,
   showEnds,
 }: {
   name: string;
@@ -102,6 +148,7 @@ function SliderTextLayer({
   color: string;
   fontSize: number;
   endFontSize: number;
+  centerInset: React.CSSProperties;
   showEnds: boolean;
 }) {
   const ends = showEnds ? endPositions(rotation) : null;
@@ -111,6 +158,7 @@ function SliderTextLayer({
         style={{
           position: 'absolute',
           inset: 0,
+          ...centerInset,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -155,8 +203,7 @@ export function SliderVisual({
   fillColor?: string;
 }) {
   const vertical = rotation === 90 || rotation === 270;
-  const fontSize = Math.max(11, Math.min(width, height) * 0.22);
-  const endFontSize = Math.max(9, Math.min(width, height) * 0.14);
+  const { fontSize, endFontSize, centerInset } = sliderTextMetrics(name, width, height, vertical, showEnds);
 
   let fillStyle: React.CSSProperties;
   let innerAnchor: React.CSSProperties;
@@ -182,6 +229,7 @@ export function SliderVisual({
       color={color}
       fontSize={fontSize}
       endFontSize={endFontSize}
+      centerInset={centerInset}
       showEnds={showEnds}
     />
   );
@@ -258,7 +306,7 @@ function SliderControl({
         setFromEvent(e);
       }}
     >
-      <SliderVisual name={control.name} rotation={rot} width={width} height={height} value={value} />
+      <SliderVisual name={control.name} rotation={rot} width={width} height={height} value={value} showEnds />
     </div>
   );
 }
