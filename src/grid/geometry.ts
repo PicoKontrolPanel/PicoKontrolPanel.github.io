@@ -7,17 +7,28 @@ import type { Control, Rotation } from '../lib/types';
 
 export const DEFAULT_GRID_COLS = 11;
 export const DEFAULT_GRID_ROWS = 31;
+
+// Absolute protocol clamp — any value a device may report/store renders truthfully.
 export const MIN_GRID = 2;
 export const MAX_GRID = 60;
-export const EDGE_MARGIN = 50;
+
+// Comfortable range offered on the Create screen (guidance, not a hard wall).
+export const GRID_INPUT_MIN = 4;
+export const GRID_INPUT_MAX = 40;
 
 export interface GridGeometry {
   areaW: number;
   areaH: number;
   cols: number;
   rows: number;
+  margin: number;
   stepX: number;
   stepY: number;
+}
+
+/** Edge margin scales with the play area so it looks right on phones and laptops alike. */
+function edgeMargin(areaW: number, areaH: number): number {
+  return Math.max(14, Math.min(56, Math.min(areaW, areaH) * 0.05));
 }
 
 /** Pixel placement of a control (center + unrotated size). */
@@ -34,13 +45,15 @@ export function computeGeometry(
   cols: number = DEFAULT_GRID_COLS,
   rows: number = DEFAULT_GRID_ROWS,
 ): GridGeometry {
-  const usableW = Math.max(1, areaW - 2 * EDGE_MARGIN);
-  const usableH = Math.max(1, areaH - 2 * EDGE_MARGIN);
+  const margin = edgeMargin(areaW, areaH);
+  const usableW = Math.max(1, areaW - 2 * margin);
+  const usableH = Math.max(1, areaH - 2 * margin);
   return {
     areaW,
     areaH,
     cols,
     rows,
+    margin,
     stepX: usableW / Math.max(1, cols - 1),
     stepY: usableH / Math.max(1, rows - 1),
   };
@@ -48,12 +61,12 @@ export function computeGeometry(
 
 /** Half-cell center coord -> pixel from the relevant edge. */
 function centerToPxX(centerX2: number, geo: GridGeometry): number {
-  return EDGE_MARGIN + (centerX2 / 2) * geo.stepX;
+  return geo.margin + (centerX2 / 2) * geo.stepX;
 }
 
 function centerToPxY(centerY2: number, geo: GridGeometry): number {
   // Origin is bottom-left, DOM top grows downward.
-  const fromBottom = EDGE_MARGIN + (centerY2 / 2) * geo.stepY;
+  const fromBottom = geo.margin + (centerY2 / 2) * geo.stepY;
   return geo.areaH - fromBottom;
 }
 
@@ -80,8 +93,8 @@ export function gridDots(geo: GridGeometry): { x: number; y: number }[] {
   for (let col = 0; col < geo.cols; col += 1) {
     for (let row = 0; row < geo.rows; row += 1) {
       dots.push({
-        x: EDGE_MARGIN + col * geo.stepX,
-        y: geo.areaH - (EDGE_MARGIN + row * geo.stepY),
+        x: geo.margin + col * geo.stepX,
+        y: geo.areaH - (geo.margin + row * geo.stepY),
       });
     }
   }

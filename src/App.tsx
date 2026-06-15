@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { useStore } from './store/store';
-import { useViewportScale } from './lib/useViewportScale';
 import { SplashScreen } from './screens/SplashScreen';
 import { IntroScreen } from './screens/IntroScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
@@ -15,7 +14,6 @@ function App() {
   const init = useStore((s) => s.init);
   const sideMenuOpen = useStore((s) => s.sideMenuOpen);
   const debuggerOpen = useStore((s) => s.debuggerOpen);
-  const { scale, fullbleed } = useViewportScale();
 
   useEffect(() => {
     const timer = setTimeout(() => init(), 1100);
@@ -23,21 +21,16 @@ function App() {
   }, [init]);
 
   return (
-    <div className="app-stage">
-      <div
-        className={`app ${fullbleed ? 'app-fullbleed' : ''}`}
-        style={fullbleed ? undefined : { transform: `scale(${scale})` }}
-      >
-        {screen === 'splash' && <SplashScreen />}
-        {screen === 'intro' && <IntroScreen />}
-        {screen === 'dashboard' && <DashboardScreen />}
-        {screen === 'connection' && <ConnectionScreen />}
-        {screen === 'create' && <CreateDeviceScreen />}
-        {screen === 'control' && <ControlPanelScreen />}
+    <div className="app">
+      {screen === 'splash' && <SplashScreen />}
+      {screen === 'intro' && <IntroScreen />}
+      {screen === 'dashboard' && <DashboardScreen />}
+      {screen === 'connection' && <ConnectionScreen />}
+      {screen === 'create' && <CreateDeviceScreen />}
+      {screen === 'control' && <ControlPanelScreen />}
 
-        {sideMenuOpen && <SideMenu />}
-        {debuggerOpen && <Debugger />}
-      </div>
+      {sideMenuOpen && <SideMenu />}
+      {debuggerOpen && <Debugger />}
     </div>
   );
 }

@@ -5,8 +5,8 @@ import { APP_VERSION } from '../lib/storage';
 import {
   DEFAULT_GRID_COLS,
   DEFAULT_GRID_ROWS,
-  MAX_GRID,
-  MIN_GRID,
+  GRID_INPUT_MAX,
+  GRID_INPUT_MIN,
 } from '../grid/geometry';
 import { useStore } from '../store/store';
 
@@ -23,7 +23,9 @@ export function CreateDeviceScreen() {
   const [submitting, setSubmitting] = useState(false);
 
   const clampGrid = (v: number) =>
-    Number.isFinite(v) ? Math.max(MIN_GRID, Math.min(MAX_GRID, Math.round(v))) : DEFAULT_GRID_COLS;
+    Number.isFinite(v)
+      ? Math.max(GRID_INPUT_MIN, Math.min(GRID_INPUT_MAX, Math.round(v)))
+      : DEFAULT_GRID_COLS;
 
   async function submit() {
     setSubmitting(true);
@@ -80,8 +82,8 @@ export function CreateDeviceScreen() {
             <input
               id="cols"
               type="number"
-              min={MIN_GRID}
-              max={MAX_GRID}
+              min={GRID_INPUT_MIN}
+              max={GRID_INPUT_MAX}
               value={Number.isNaN(cols) ? '' : cols}
               onChange={(e) => setCols(parseInt(e.target.value, 10))}
               onBlur={() => setCols(clampGrid(cols))}
@@ -92,8 +94,8 @@ export function CreateDeviceScreen() {
             <input
               id="rows"
               type="number"
-              min={MIN_GRID}
-              max={MAX_GRID}
+              min={GRID_INPUT_MIN}
+              max={GRID_INPUT_MAX}
               value={Number.isNaN(rows) ? '' : rows}
               onChange={(e) => setRows(parseInt(e.target.value, 10))}
               onBlur={() => setRows(clampGrid(rows))}

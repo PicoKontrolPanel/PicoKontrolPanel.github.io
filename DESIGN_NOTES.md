@@ -71,10 +71,29 @@ coordinate space for stored layouts, the **device is the source of truth**:
 - The device persists `gridCols/gridRows` in `DeviceSettings.txt` and emits a
   `#GRID,<cols>,<rows>` header at the top of every layout stream.
 - The app reads that header (`parseGridHeader`) and renders/edits against it;
-  if absent (older firmware) it falls back to 11 × 31. Clamped to 2–60.
+  if absent (older firmware) it falls back to 11 × 31.
 
 This keeps the dot-ratio consistent across phones, tablets, and laptops while
 letting each robot define a grid that suits its number of controls.
+
+**Two ranges, on purpose:**
+- **Protocol clamp `MIN_GRID..MAX_GRID` = 2..60** — the absolute range a device may
+  report/store. The app never remaps a value inside this range, so coordinates stay
+  truthful for any device.
+- **Create-screen input `GRID_INPUT_MIN..GRID_INPUT_MAX` = 4..40** — the *comfortable*
+  range offered when setting up a device (4×4 is the smallest useful panel; 40 is dense
+  but usable even on a 1080p laptop). It's guidance, not a hard wall.
+
+## Responsive layout (native on phone / tablet / laptop / PC)
+
+The app fills the viewport on every device (no fixed phone frame). Sizing is driven by
+`clamp()` against viewport units, so type, bars, buttons, the side menu, and modals
+scale with the screen. "Page" screens (intro, dashboard, create, connection) cap their
+content to `--content-max` (720px) and centre it; the **Control Panel uses the full
+viewport**, so a large/wide grid gets the whole laptop display. The grid's edge margin
+is proportional to the play area (`geometry.edgeMargin`) so spacing looks right at any
+size. The control grid stretches to fill its area — picking a grid that doesn't match a
+device's aspect will look compressed there, which is an accepted, user-chosen trade-off.
 
 ## Edit Mode
 
