@@ -5,7 +5,7 @@ import type { SavedDevice, User } from './types';
 const USER_KEY = 'pkp.user';
 const DEVICES_KEY = 'pkp.savedDevices';
 
-export const APP_VERSION = 'Prototype Version 0.6.7';
+export const APP_VERSION = 'Prototype Version 0.6.8';
 
 function readJSON<T>(key: string): T | null {
   try {
