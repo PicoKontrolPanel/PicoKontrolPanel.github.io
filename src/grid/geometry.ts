@@ -31,7 +31,7 @@ function edgeMargin(areaW: number, areaH: number): number {
   return Math.max(14, Math.min(56, Math.min(areaW, areaH) * 0.05));
 }
 
-/** Pixel placement of a control (center + unrotated size). */
+/** Pixel placement of a control (center + current grid footprint). */
 export interface ControlRect {
   cx: number;
   cy: number;
@@ -79,15 +79,11 @@ export function controlRect(control: Control, geo: GridGeometry): ControlRect | 
   ) {
     return null;
   }
-  // Size from the ROTATED span so the on-screen box matches the cell footprint
-  // used for collision/snapping. (Cells aren't square — stepX != stepY — so the
-  // box cannot be CSS-rotated; rotation is handled inside the control instead.)
-  const { w, h } = rotatedSpan(control.spanX, control.spanY, control.rotation);
   return {
     cx: centerToPxX(control.centerX2, geo),
     cy: centerToPxY(control.centerY2, geo),
-    width: w * geo.stepX,
-    height: h * geo.stepY,
+    width: control.spanX * geo.stepX,
+    height: control.spanY * geo.stepY,
   };
 }
 

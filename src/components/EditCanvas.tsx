@@ -8,7 +8,6 @@ import {
   computeGeometry,
   controlRect,
   gridDots,
-  rotatedSpan,
   snapCenter,
   type GridGeometry,
 } from '../grid/geometry';
@@ -27,23 +26,29 @@ interface Box {
 
 function cellBox(c: Control): Box | null {
   if (!isPlaced(c)) return null;
-  const { w, h } = rotatedSpan(c.spanX!, c.spanY!, c.rotation);
   const cx = c.centerX2! / 2;
   const cy = c.centerY2! / 2;
-  return { x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 };
+  return { x0: cx - c.spanX! / 2, x1: cx + c.spanX! / 2, y0: cy - c.spanY! / 2, y1: cy + c.spanY! / 2 };
 }
 
 function overlaps(a: Box, b: Box, eps = 0.02): boolean {
   return a.x0 < b.x1 - eps && b.x0 < a.x1 - eps && a.y0 < b.y1 - eps && b.y0 < a.y1 - eps;
 }
 
-/** Re-snap a control's center to a legal grid placement for its current (rotated) span. */
+/** Re-snap a control's center to a legal grid placement for its current span. */
 function resnap(c: Control, geo: GridGeometry): Control {
   const rect = controlRect(c, geo);
   if (!rect || c.spanX === null || c.spanY === null) return c;
-  const { w, h } = rotatedSpan(c.spanX, c.spanY, c.rotation);
-  const snapped = snapCenter(rect.cx, rect.cy, w, h, geo);
+  const snapped = snapCenter(rect.cx, rect.cy, c.spanX, c.spanY, geo);
   return { ...c, centerX2: snapped.centerX2, centerY2: snapped.centerY2 };
+}
+
+function clampSpanX(span: number, geo: GridGeometry): number {
+  return Math.max(1, Math.min(geo.cols - 1, span));
+}
+
+function clampSpanY(span: number, geo: GridGeometry): number {
+  return Math.max(1, Math.min(geo.rows - 1, span));
 }
 
 export function EditCanvas() {
@@ -119,8 +124,7 @@ export function EditCanvas() {
     if (dragName && dragPx) {
       const c = draft.find((x) => x.name === dragName);
       if (c && c.spanX !== null && c.spanY !== null) {
-        const { w, h } = rotatedSpan(c.spanX, c.spanY, c.rotation);
-        const snapped = snapCenter(dragPx.cx, dragPx.cy, w, h, geo);
+        const snapped = snapCenter(dragPx.cx, dragPx.cy, c.spanX, c.spanY, geo);
         update(dragName, (ctrl) => ({ ...ctrl, centerX2: snapped.centerX2, centerY2: snapped.centerY2 }));
       }
     }
@@ -130,14 +134,27 @@ export function EditCanvas() {
 
   // ---- toolbar actions ----
   function rotate(name: string) {
-    update(name, (c) => resnap({ ...c, rotation: (((c.rotation + 270) % 360) as Rotation) }, geo));
+    update(name, (c) => {
+      if (c.spanX === null || c.spanY === null) {
+        return { ...c, rotation: (((c.rotation + 270) % 360) as Rotation) };
+      }
+      return resnap(
+        {
+          ...c,
+          rotation: (((c.rotation + 270) % 360) as Rotation),
+          spanX: clampSpanX(c.spanY, geo),
+          spanY: clampSpanY(c.spanX, geo),
+        },
+        geo,
+      );
+    });
   }
 
   function resize(name: string, axis: 'x' | 'y', delta: number) {
     update(name, (c) => {
       if (c.spanX === null || c.spanY === null) return c;
-      const spanX = axis === 'x' ? Math.max(1, Math.min(geo.cols - 1, c.spanX + delta)) : c.spanX;
-      const spanY = axis === 'y' ? Math.max(1, Math.min(geo.rows - 1, c.spanY + delta)) : c.spanY;
+      const spanX = axis === 'x' ? clampSpanX(c.spanX + delta, geo) : c.spanX;
+      const spanY = axis === 'y' ? clampSpanY(c.spanY + delta, geo) : c.spanY;
       return resnap({ ...c, spanX, spanY }, geo);
     });
   }
@@ -176,11 +193,31 @@ export function EditCanvas() {
       <div className="edit-band edit-toolbar-band">
         {selectedControl && isPlaced(selectedControl) ? (
           <div className="edit-toolbar" onPointerDown={(e) => e.stopPropagation()}>
-            <ToolBtn label="⟲" onClick={() => rotate(selectedControl.name)} />
-            <ToolBtn label="W−" onClick={() => resize(selectedControl.name, 'x', -1)} />
-            <ToolBtn label="W+" onClick={() => resize(selectedControl.name, 'x', 1)} />
-            <ToolBtn label="H−" onClick={() => resize(selectedControl.name, 'y', -1)} />
-            <ToolBtn label="H+" onClick={() => resize(selectedControl.name, 'y', 1)} />
+            <ToolBtn label="⟲" title="Roter" onClick={() => rotate(selectedControl.name)} />
+            <ToolBtn
+              label="W−"
+              title="Gør smallere"
+              onClick={() => resize(selectedControl.name, 'x', -1)}
+              disabled={selectedControl.spanX === null || selectedControl.spanX <= 1}
+            />
+            <ToolBtn
+              label="W+"
+              title="Gør bredere"
+              onClick={() => resize(selectedControl.name, 'x', 1)}
+              disabled={selectedControl.spanX === null || selectedControl.spanX >= geo.cols - 1}
+            />
+            <ToolBtn
+              label="H−"
+              title="Gør lavere"
+              onClick={() => resize(selectedControl.name, 'y', -1)}
+              disabled={selectedControl.spanY === null || selectedControl.spanY <= 1}
+            />
+            <ToolBtn
+              label="H+"
+              title="Gør højere"
+              onClick={() => resize(selectedControl.name, 'y', 1)}
+              disabled={selectedControl.spanY === null || selectedControl.spanY >= geo.rows - 1}
+            />
             <button
               className="iconbtn"
               style={{ color: 'var(--red)' }}
@@ -315,16 +352,29 @@ export function EditCanvas() {
   );
 }
 
-function ToolBtn({ label, onClick }: { label: string; onClick: () => void }) {
+function ToolBtn({
+  label,
+  title,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
+      aria-label={title}
+      title={title}
+      disabled={disabled}
       onClick={onClick}
       style={{
         minWidth: 38,
         height: 38,
         borderRadius: 12,
-        background: 'var(--red)',
+        background: disabled ? 'var(--grey)' : 'var(--red)',
         color: 'var(--white)',
         fontWeight: 800,
         fontSize: 14,
