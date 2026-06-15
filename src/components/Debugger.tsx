@@ -10,9 +10,9 @@ const levelClass: Record<LogLevel, string> = {
 };
 
 const levelTag: Record<LogLevel, string> = {
-  error: '[ERROR] ',
-  success: '[SUCCESS] ',
-  warning: '[WARNING] ',
+  error: '[FEJL] ',
+  success: '[SUCCES] ',
+  warning: '[ADVARSEL] ',
   info: '',
 };
 
@@ -57,10 +57,10 @@ export function Debugger() {
       </div>
       <div className="row" style={{ marginTop: 14 }}>
         <button className="btn btn-outline btn-block" type="button" onClick={clearLogs}>
-          Clear
+          Ryd
         </button>
         <button className="btn btn-primary btn-block" type="button" onClick={saveToFile}>
-          Save To Phone
+          Gem til enhed
         </button>
       </div>
     </Modal>

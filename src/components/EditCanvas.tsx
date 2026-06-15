@@ -2,6 +2,7 @@ import type React from 'react';
 import { useMemo, useRef, useState } from 'react';
 import { Glyph } from '../assets/icons';
 import { AddModal } from './AddModal';
+import { SliderVisual } from './controls/PlayControls';
 import { useElementSize } from '../lib/useElementSize';
 import {
   computeGeometry,
@@ -43,19 +44,6 @@ function resnap(c: Control, geo: GridGeometry): Control {
   const { w, h } = rotatedSpan(c.spanX, c.spanY, c.rotation);
   const snapped = snapCenter(rect.cx, rect.cy, w, h, geo);
   return { ...c, centerX2: snapped.centerX2, centerY2: snapped.centerY2 };
-}
-
-/** Upright label content for edit-mode controls (vertical stack for rotated sliders). */
-function editLabel(c: Control): React.ReactNode {
-  const vertical = c.type === 'slider' && (c.rotation === 90 || c.rotation === 270);
-  if (!vertical) return c.name;
-  return (
-    <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.02 }}>
-      {[...c.name].map((ch, i) => (
-        <span key={i}>{ch === ' ' ? ' ' : ch}</span>
-      ))}
-    </span>
-  );
 }
 
 export function EditCanvas() {
@@ -111,7 +99,7 @@ export function EditCanvas() {
     if (!rect) return;
     setDragName(c.name);
     setDragPx({ cx: rect.cx, cy: rect.cy });
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function onPointerMove(e: React.PointerEvent) {
@@ -250,19 +238,29 @@ export function EditCanvas() {
                     style={style}
                     onPointerDown={(e) => onPointerDown(e, c)}
                   >
-                    <div
-                      className={c.type === 'button' ? 'control-button' : 'control-slider'}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        display: 'grid',
-                        placeItems: 'center',
-                        color: c.type === 'slider' ? 'var(--red)' : undefined,
-                        fontWeight: 800,
-                      }}
-                    >
-                      {editLabel(c)}
-                    </div>
+                    {c.type === 'button' ? (
+                      <div
+                        className="control-button"
+                        style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', fontWeight: 800 }}
+                      >
+                        {c.name}
+                      </div>
+                    ) : (
+                      <div
+                        className="control-slider"
+                        style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}
+                      >
+                        <SliderVisual
+                          name={c.name}
+                          rotation={c.rotation}
+                          width={rect.width}
+                          height={rect.height}
+                          value={50}
+                          showEnds
+                          fillColor={colliding.has(c.name) ? 'var(--disabled)' : 'var(--red)'}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}

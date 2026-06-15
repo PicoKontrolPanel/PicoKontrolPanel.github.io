@@ -9,7 +9,7 @@ interface IconPickerProps {
 
 export function IconPicker({ selected, onSelect, onClose }: IconPickerProps) {
   return (
-    <Modal title="Vælg Enhedens Icon" onClose={onClose}>
+    <Modal title="Vælg Enhedens Ikon" onClose={onClose}>
       <div className="icon-grid">
         {DEVICE_ICONS.map((icon) => (
           <button
