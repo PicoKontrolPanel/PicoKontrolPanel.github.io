@@ -24,15 +24,15 @@ export function IntroScreen() {
           brugernavn for at komme i gang.
         </p>
 
-        <div className={`field ${filled ? 'filled' : ''}`}>
+        <div className="field">
           <input
             id="username"
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={32}
             autoComplete="off"
+            placeholder="Brugernavn"
           />
-          <label htmlFor="username">Brugernavn...</label>
         </div>
 
         <button

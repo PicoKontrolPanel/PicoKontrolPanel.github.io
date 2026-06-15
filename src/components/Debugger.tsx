@@ -42,7 +42,7 @@ export function Debugger() {
   }
 
   return (
-    <Modal title="Debugger" onClose={() => close(false)} closeVariant="circle">
+    <Modal title="Fejlfinding" onClose={() => close(false)} closeVariant="circle">
       <div className="terminal">
         {logs.length === 0 ? (
           <div className="term-line">Ingen log endnu.</div>

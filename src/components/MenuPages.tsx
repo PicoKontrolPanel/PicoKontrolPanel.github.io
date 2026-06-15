@@ -49,11 +49,16 @@ export function MenuPages() {
 
   if (page === 'user-settings') {
     return (
-      <Modal title="User Settings" onClose={close}>
+      <Modal title="Brugerindstillinger" onClose={close}>
         <div className="settings-stack">
-          <div className="field filled">
-            <input value={username} onChange={(e) => setUsername(e.target.value)} maxLength={24} />
-            <label>Brugernavn</label>
+          <div className="field">
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              maxLength={24}
+              autoComplete="off"
+              placeholder="Brugernavn"
+            />
           </div>
           <InfoRow label="UUID" value={user?.userID ?? 'Ukendt'} />
           <button className="btn btn-primary btn-block" type="button" onClick={() => updateUsername(username)}>
@@ -66,7 +71,7 @@ export function MenuPages() {
 
   if (page === 'application-settings') {
     return (
-      <Modal title="Application Settings" onClose={close}>
+      <Modal title="Applikationsindstillinger" onClose={close}>
         <div className="settings-stack">
           <InfoRow label="Version" value={APP_VERSION} />
           <InfoRow label="Bluetooth" value={isBluetoothSupported() ? 'Tilgængelig' : 'Ikke tilgængelig'} />
@@ -97,7 +102,7 @@ export function MenuPages() {
 
   if (page === 'application-help') {
     return (
-      <Modal title="Help for Application" onClose={close}>
+      <Modal title="Hjælp til applikationen" onClose={close}>
         <div className="settings-stack prose">
           <p>Find en Pico W med plus-knappen, forbind til den, og åbn kontrolpanelet.</p>
           <p>Gemte enheder kan forbindes igen fra dashboardet. Enheder du ikke ejer vises under Andre Enheder.</p>
@@ -117,8 +122,8 @@ export function MenuPages() {
       const risk = gridShrinkRisk(layout, nextCols, nextRows);
       if (risk && !confirmRisk) {
         askConfirm({
-          title: 'Grid May Affect Layout',
-          message: `Det nuværende layout bruger op til ${risk.requiredCols} kolonner og ${risk.requiredRows} rækker. Det nye gitter er ${nextCols} × ${nextRows}, så nogle kontroller kan ende udenfor eller skulle flyttes i edit mode.`,
+          title: 'Gitter kan påvirke layout',
+          message: `Det nuværende layout bruger op til ${risk.requiredCols} kolonner og ${risk.requiredRows} rækker. Det nye gitter er ${nextCols} × ${nextRows}, så nogle kontroller kan ende udenfor eller skulle flyttes i redigering.`,
           confirmLabel: 'Gem alligevel',
           onConfirm: () => {
             saveConnectedSettings(true);
@@ -134,7 +139,7 @@ export function MenuPages() {
     }
 
     return (
-      <Modal title="Device Settings" onClose={close}>
+      <Modal title="Enhedsindstillinger" onClose={close}>
         <div className="settings-stack">
           <InfoRow label="Navn" value={active?.deviceName ?? 'Ukendt'} />
           <InfoRow label="Ejer" value={active?.isOwnedByMe ? 'Denne bruger' : 'Anden bruger'} />
@@ -230,11 +235,11 @@ export function MenuPages() {
   }
 
   return (
-    <Modal title="Help for Device" onClose={close}>
+    <Modal title="Hjælp til enheden" onClose={close}>
       <div className="settings-stack prose">
         <p>Knapper sender en kommando med deres navn, når de trykkes.</p>
         <p>Slidere sender værdien fra den firmware-definerede skala. Appen ændrer kun placering og størrelse.</p>
-        <p>Hvis redigering er tilladt, kan du åbne Edit Device fra menuen og gemme layoutet tilbage på Picoen.</p>
+        <p>Hvis redigering er tilladt, kan du åbne redigering fra menuen og gemme layoutet tilbage på Picoen.</p>
         {active?.canEdit && (
           <button className="btn btn-primary btn-block" type="button" onClick={() => setEditMode(true)}>
             Rediger layout

@@ -85,7 +85,7 @@ export function DashboardScreen() {
       <span className="version">{APP_VERSION}</span>
 
       {settingsDevice && (
-        <Modal title="Device Settings" onClose={() => setSettingsDevice(null)}>
+        <Modal title="Enhedsindstillinger" onClose={() => setSettingsDevice(null)}>
           <div className="settings-stack">
             <div className="saved-device-head">
               <img src={deviceIconUrl(settingsDevice.deviceIconID)} alt="" />

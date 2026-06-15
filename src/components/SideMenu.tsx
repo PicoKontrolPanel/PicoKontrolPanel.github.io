@@ -20,14 +20,14 @@ export function SideMenu() {
       <nav className="sidemenu" aria-label="Sidemenu">
         {onDashboard && (
           <>
-            <button className="iconbtn" type="button" onClick={() => openMenuPage('user-settings')} aria-label="User Settings">
+            <button className="iconbtn" type="button" onClick={() => openMenuPage('user-settings')} aria-label="Brugerindstillinger">
               <Glyph name="user" />
             </button>
             <button
               className="iconbtn"
               type="button"
               onClick={() => openMenuPage('application-settings')}
-              aria-label="Application Settings"
+              aria-label="Applikationsindstillinger"
             >
               <Glyph name="settings" />
             </button>
@@ -35,11 +35,11 @@ export function SideMenu() {
               className="iconbtn"
               type="button"
               onClick={() => openMenuPage('application-help')}
-              aria-label="Help for Application"
+              aria-label="Hjælp til applikationen"
             >
               <Glyph name="help" />
             </button>
-            <button className="iconbtn" type="button" onClick={() => toggleDebugger(true)} aria-label="Debugger">
+            <button className="iconbtn" type="button" onClick={() => toggleDebugger(true)} aria-label="Fejlfinding">
               <Glyph name="debugger" />
             </button>
           </>
@@ -51,7 +51,7 @@ export function SideMenu() {
               className="iconbtn"
               type="button"
               onClick={() => openMenuPage('device-settings')}
-              aria-label="Device Settings"
+              aria-label="Enhedsindstillinger"
             >
               <Glyph name="settings" />
             </button>
@@ -60,14 +60,14 @@ export function SideMenu() {
               type="button"
               onClick={() => setEditMode(true)}
               disabled={!canEdit}
-              aria-label="Edit Device"
+              aria-label="Rediger enhed"
             >
               <Glyph name="edit" />
             </button>
-            <button className="iconbtn" type="button" onClick={() => openMenuPage('device-help')} aria-label="Help for Device">
+            <button className="iconbtn" type="button" onClick={() => openMenuPage('device-help')} aria-label="Hjælp til enheden">
               <Glyph name="help" />
             </button>
-            <button className="iconbtn" type="button" onClick={() => toggleDebugger(true)} aria-label="Debugger">
+            <button className="iconbtn" type="button" onClick={() => toggleDebugger(true)} aria-label="Fejlfinding">
               <Glyph name="debugger" />
             </button>
           </>

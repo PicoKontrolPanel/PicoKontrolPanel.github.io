@@ -258,13 +258,18 @@ button:disabled {
 .field input {
   width: 100%;
   height: 64px;
-  padding: 22px 20px 8px;
+  padding: 0 20px;
   border: 2px solid var(--red);
   border-radius: var(--radius-sm);
   font-size: 1.1rem;
   color: var(--text);
   background: var(--white);
   outline: none;
+}
+
+.field input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
 }
 
 .field label {
@@ -536,10 +541,10 @@ button:disabled {
   color: var(--red);
 }
 
-/* Circular close: white circled-X on a red disc (used by the debugger). */
+/* Circular close: red circled-X on a white disc (used by the debugger). */
 .modal-head .iconbtn.modal-close-circle {
-  color: var(--white);
-  background: var(--red);
+  color: var(--red);
+  background: var(--white);
   border-radius: 50%;
   padding: 4px;
 }

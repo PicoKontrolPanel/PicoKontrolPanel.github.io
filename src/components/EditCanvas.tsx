@@ -203,8 +203,8 @@ export function EditCanvas() {
       return;
     }
     askConfirm({
-      title: 'Discard Changes',
-      message: 'Vil du forlade edit mode og kassere dine layout-ændringer?',
+      title: 'Kassér ændringer',
+      message: 'Vil du forlade redigering og kassere dine layout-ændringer?',
       confirmLabel: 'Kassér',
       onConfirm: () => setEditMode(false),
     });

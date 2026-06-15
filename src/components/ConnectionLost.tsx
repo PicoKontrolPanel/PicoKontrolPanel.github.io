@@ -9,7 +9,7 @@ export function ConnectionLost() {
   if (!lost) return null;
 
   return (
-    <Modal title="Connection Lost" onClose={dismiss}>
+    <Modal title="Forbindelse afbrudt" onClose={dismiss}>
       <div className="settings-stack">
         <p className="confirm-message">
           Forbindelsen til {lost.deviceName} blev afbrudt. Tjek at Picoen har strøm og er tæt nok på.
