@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { Glyph, deviceIconUrl } from '../assets/icons';
 import { IconPicker } from '../components/IconPicker';
 import { APP_VERSION } from '../lib/storage';
+import {
+  DEFAULT_GRID_COLS,
+  DEFAULT_GRID_ROWS,
+  MAX_GRID,
+  MIN_GRID,
+} from '../grid/geometry';
 import { useStore } from '../store/store';
 
 export function CreateDeviceScreen() {
@@ -12,11 +18,16 @@ export function CreateDeviceScreen() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const [canEdit, setCanEdit] = useState(false);
+  const [cols, setCols] = useState(DEFAULT_GRID_COLS);
+  const [rows, setRows] = useState(DEFAULT_GRID_ROWS);
   const [submitting, setSubmitting] = useState(false);
+
+  const clampGrid = (v: number) =>
+    Number.isFinite(v) ? Math.max(MIN_GRID, Math.min(MAX_GRID, Math.round(v))) : DEFAULT_GRID_COLS;
 
   async function submit() {
     setSubmitting(true);
-    await finishCreate(iconID, isPublic, isPublic && canEdit);
+    await finishCreate(iconID, isPublic, isPublic && canEdit, clampGrid(cols), clampGrid(rows));
   }
 
   return (
@@ -61,6 +72,34 @@ export function CreateDeviceScreen() {
             </div>
           </>
         )}
+
+        <p className="prompt">Kontrolpanelets gitter (kolonner × rækker)</p>
+        <div className="row" style={{ width: '100%' }}>
+          <div className="grid-field">
+            <label htmlFor="cols">Kolonner</label>
+            <input
+              id="cols"
+              type="number"
+              min={MIN_GRID}
+              max={MAX_GRID}
+              value={Number.isNaN(cols) ? '' : cols}
+              onChange={(e) => setCols(parseInt(e.target.value, 10))}
+              onBlur={() => setCols(clampGrid(cols))}
+            />
+          </div>
+          <div className="grid-field">
+            <label htmlFor="rows">Rækker</label>
+            <input
+              id="rows"
+              type="number"
+              min={MIN_GRID}
+              max={MAX_GRID}
+              value={Number.isNaN(rows) ? '' : rows}
+              onChange={(e) => setRows(parseInt(e.target.value, 10))}
+              onBlur={() => setRows(clampGrid(rows))}
+            />
+          </div>
+        </div>
 
         <div className="row" style={{ marginTop: 'auto', width: '100%' }}>
           <button

@@ -8,8 +8,9 @@ import {
   saveUser,
   upsertDevice,
 } from '../lib/storage';
-import { PicoProtocol, parseLayout, type LogLevel } from '../ble/protocol';
+import { PicoProtocol, parseGridHeader, parseLayout, type LogLevel } from '../ble/protocol';
 import { displayName, requestDevice } from '../ble/transport';
+import { DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS } from '../grid/geometry';
 
 export type Screen =
   | 'splash'
@@ -36,6 +37,8 @@ interface ActiveDevice {
   iconID: number;
   canEdit: boolean;
   isOwnedByMe: boolean;
+  gridCols: number;
+  gridRows: number;
 }
 
 interface AppState {
@@ -60,7 +63,13 @@ interface AppState {
   createUser: (username: string) => void;
   findDevice: () => Promise<void>;
   connectToDevice: (device: BluetoothDevice, known?: SavedDevice) => Promise<void>;
-  finishCreate: (iconID: number, canConnect: boolean, canEdit: boolean) => Promise<void>;
+  finishCreate: (
+    iconID: number,
+    canConnect: boolean,
+    canEdit: boolean,
+    cols: number,
+    rows: number,
+  ) => Promise<void>;
   cancelCreate: () => Promise<void>;
   disconnect: () => Promise<void>;
   removeSavedDevice: (deviceID: string) => void;
@@ -176,7 +185,15 @@ export const useStore = create<AppState>((set, get) => {
 
         if (result.kind === 'unowned') {
           set({
-            active: { deviceID, deviceName, iconID: 0, canEdit: true, isOwnedByMe: true },
+            active: {
+              deviceID,
+              deviceName,
+              iconID: 0,
+              canEdit: true,
+              isOwnedByMe: true,
+              gridCols: DEFAULT_GRID_COLS,
+              gridRows: DEFAULT_GRID_ROWS,
+            },
             screen: 'create',
           });
           return;
@@ -194,6 +211,7 @@ export const useStore = create<AppState>((set, get) => {
         set({ savedDevices: upsertDevice(saved) });
 
         const lines = await protocol.requestLayout();
+        const grid = parseGridHeader(lines);
         set({
           layout: parseLayout(lines),
           active: {
@@ -202,6 +220,8 @@ export const useStore = create<AppState>((set, get) => {
             iconID: result.iconID,
             canEdit: result.canEdit,
             isOwnedByMe: result.isOwnedByMe,
+            gridCols: grid.cols,
+            gridRows: grid.rows,
           },
           screen: 'control',
           connecting: null,
@@ -214,12 +234,12 @@ export const useStore = create<AppState>((set, get) => {
       }
     },
 
-    finishCreate: async (iconID, canConnect, canEdit) => {
+    finishCreate: async (iconID, canConnect, canEdit, cols, rows) => {
       const { user, active } = get();
       if (!user || !active || !protocol) return;
       try {
         protocol.setBusy(true);
-        await protocol.create(user, iconID, canConnect, canEdit);
+        await protocol.create(user, iconID, canConnect, canEdit, cols, rows);
         protocol.setBusy(false);
 
         const saved: SavedDevice = {
@@ -233,9 +253,10 @@ export const useStore = create<AppState>((set, get) => {
         set({ savedDevices: upsertDevice(saved) });
 
         const lines = await protocol.requestLayout();
+        const grid = parseGridHeader(lines);
         set({
           layout: parseLayout(lines),
-          active: { ...active, iconID, canEdit: true },
+          active: { ...active, iconID, canEdit: true, gridCols: grid.cols, gridRows: grid.rows },
           screen: 'control',
         });
       } catch (err) {

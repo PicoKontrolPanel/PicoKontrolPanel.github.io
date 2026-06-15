@@ -81,6 +81,8 @@ class BLEPeripheral:
         self.icon_id = 0
         self.can_others_connect = 0
         self.can_others_edit = 0
+        self.grid_cols = 11
+        self.grid_rows = 31
 
         # ---- Session flags
         self._session_can_edit = False
@@ -225,6 +227,16 @@ class BLEPeripheral:
                         self.can_others_edit = 1 if int(val) == 1 else 0
                     except:
                         self.can_others_edit = 0
+                elif key == "gridCols":
+                    try:
+                        self.grid_cols = max(2, min(60, int(val)))
+                    except:
+                        self.grid_cols = 11
+                elif key == "gridRows":
+                    try:
+                        self.grid_rows = max(2, min(60, int(val)))
+                    except:
+                        self.grid_rows = 31
 
             print("Settings loaded:",
                   self.owner_id, self.owner_name,
@@ -238,10 +250,17 @@ class BLEPeripheral:
             self.can_others_edit = 0
             self.save_settings_to_file("", "", 0, 0, 0)
 
-    def save_settings_to_file(self, owner_id, owner_name, icon_id, can_connect, can_edit):
+    def save_settings_to_file(self, owner_id, owner_name, icon_id, can_connect, can_edit,
+                              grid_cols=None, grid_rows=None):
         # Enforce rule: if connect==0 => edit==0
         if not can_connect:
             can_edit = 0
+        if grid_cols is None:
+            grid_cols = self.grid_cols
+        if grid_rows is None:
+            grid_rows = self.grid_rows
+        grid_cols = max(2, min(60, int(grid_cols)))
+        grid_rows = max(2, min(60, int(grid_rows)))
         try:
             with open(self._settings_file, "w") as f:
                 f.write("VERSION,1\n")
@@ -250,11 +269,15 @@ class BLEPeripheral:
                 f.write("iconID,{}\n".format(icon_id))
                 f.write("canOthersConnect,{}\n".format(1 if can_connect else 0))
                 f.write("canOthersEdit,{}\n".format(1 if can_edit else 0))
+                f.write("gridCols,{}\n".format(grid_cols))
+                f.write("gridRows,{}\n".format(grid_rows))
             self.owner_id = owner_id if owner_id else None
             self.owner_name = owner_name if owner_name else None
             self.icon_id = int(icon_id)
             self.can_others_connect = 1 if can_connect else 0
             self.can_others_edit = 1 if can_edit else 0
+            self.grid_cols = grid_cols
+            self.grid_rows = grid_rows
             print("Settings saved.")
         except Exception as e:
             print("Error saving settings:", e)
@@ -621,6 +644,7 @@ class BLEPeripheral:
                         self._handle_disconnected("deny_without_handle")
 
         elif msg.startswith("create,"):
+            # create,<ownerID>,<ownerName>,<iconID>,<canConnect>,<canEdit>[,<cols>,<rows>]
             parts = msg.split(",")
             if len(parts) < 6:
                 self._send_reliable_stream(["ERR: Malformed create command"])
@@ -639,10 +663,23 @@ class BLEPeripheral:
             except:
                 can_edit = 0
 
+            grid_cols = self.grid_cols
+            grid_rows = self.grid_rows
+            if len(parts) >= 8:
+                try:
+                    grid_cols = int(parts[6])
+                except:
+                    pass
+                try:
+                    grid_rows = int(parts[7])
+                except:
+                    pass
+
             if can_connect == 0:
                 can_edit = 0
 
-            self.save_settings_to_file(owner_id, owner_name, icon_id, can_connect, can_edit)
+            self.save_settings_to_file(owner_id, owner_name, icon_id, can_connect, can_edit,
+                                       grid_cols, grid_rows)
             self._session_can_edit = True
             try:
                 self._advertise()
@@ -660,7 +697,8 @@ class BLEPeripheral:
 
     def send_layout_to_unity(self):
         """Build and send layout payload once per request, ending with '__END__'."""
-        lines = ["#VERSION,{}".format(LAYOUT_VERSION)]
+        lines = ["#VERSION,{}".format(LAYOUT_VERSION),
+                 "#GRID,{},{}".format(self.grid_cols, self.grid_rows)]
         for ctrl in self.controls:
             if ctrl["type"] not in ALLOWED_COMMAND_TYPES:
                 continue

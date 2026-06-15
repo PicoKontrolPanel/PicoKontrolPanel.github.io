@@ -47,18 +47,38 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* ---- App frame (portrait, mobile-first) ---- */
+/* ---- App stage: fills the viewport, centers the scaled frame ---- */
+.app-stage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 0%, #3a3a3d, #1d1d1f 70%);
+}
+
+/* ---- App frame: fixed logical size, scaled to fit (see useViewportScale) ---- */
 .app {
   position: relative;
-  width: 100%;
-  max-width: 480px;
-  height: 100dvh;
-  margin: 0 auto;
+  width: 430px;
+  height: 880px;
+  transform-origin: center center;
   background: var(--white);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 0 60px rgba(0, 0, 0, 0.4);
+  border-radius: 22px;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.55);
+}
+
+/* Real phones: full-bleed, no letterboxing or device rounding. */
+.app-fullbleed {
+  width: 100vw;
+  height: 100dvh;
+  border-radius: 0;
+  transform: none;
+  box-shadow: none;
 }
 
 .screen {
@@ -542,6 +562,34 @@ button:disabled {
   font-weight: 700;
   color: var(--text);
   margin: 8px 0;
+}
+
+.grid-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.grid-field label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--red);
+}
+
+.grid-field input {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border: 2px solid var(--red);
+  border-radius: var(--radius-sm);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--white);
+  outline: none;
+  text-align: center;
 }
 
 /* ---- Connection screen ---- */

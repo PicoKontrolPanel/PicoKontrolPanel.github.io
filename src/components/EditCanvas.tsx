@@ -3,8 +3,6 @@ import { useMemo, useRef, useState } from 'react';
 import { Glyph } from '../assets/icons';
 import { AddModal } from './AddModal';
 import {
-  GRID_COLS,
-  GRID_ROWS,
   controlRect,
   gridDots,
   rotatedSpan,
@@ -106,9 +104,14 @@ export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
     const area = areaRef.current;
     if (!area) return;
     const r = area.getBoundingClientRect();
+    // r is in visual (scaled) pixels; clientWidth/Height are layout pixels.
+    // Convert the pointer position into the frame's unscaled layout space so it
+    // matches the grid geometry regardless of the viewport scale factor.
+    const sx = area.clientWidth / r.width;
+    const sy = area.clientHeight / r.height;
     setDragPx({
-      cx: Math.max(0, Math.min(r.width, e.clientX - r.left)),
-      cy: Math.max(0, Math.min(r.height, e.clientY - r.top)),
+      cx: Math.max(0, Math.min(area.clientWidth, (e.clientX - r.left) * sx)),
+      cy: Math.max(0, Math.min(area.clientHeight, (e.clientY - r.top) * sy)),
     });
   }
 
@@ -133,8 +136,8 @@ export function EditCanvas({ geo, canEdit }: EditCanvasProps) {
   function resize(name: string, axis: 'x' | 'y', delta: number) {
     update(name, (c) => {
       if (c.spanX === null || c.spanY === null) return c;
-      const spanX = axis === 'x' ? Math.max(1, Math.min(GRID_COLS - 1, c.spanX + delta)) : c.spanX;
-      const spanY = axis === 'y' ? Math.max(1, Math.min(GRID_ROWS - 1, c.spanY + delta)) : c.spanY;
+      const spanX = axis === 'x' ? Math.max(1, Math.min(geo.cols - 1, c.spanX + delta)) : c.spanX;
+      const spanY = axis === 'y' ? Math.max(1, Math.min(geo.rows - 1, c.spanY + delta)) : c.spanY;
       return resnap({ ...c, spanX, spanY }, geo);
     });
   }

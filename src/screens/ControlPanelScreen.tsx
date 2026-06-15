@@ -17,7 +17,7 @@ export function ControlPanelScreen() {
 
   const areaRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(areaRef);
-  const geo = computeGeometry(size.w, size.h);
+  const geo = computeGeometry(size.w, size.h, active?.gridCols, active?.gridRows);
   const ready = size.w > 0 && size.h > 0;
 
   const placed = layout.filter(isPlaced);

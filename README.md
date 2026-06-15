@@ -61,7 +61,8 @@ implemented in `src/ble/`.
 - `firmware/BLEPeripheral.py` — complete protocol (handshake, reliable stream,
   ownership/permission, layout request/update, on-device persistence).
 - `firmware/main.py` — a minimal LED-only driver that declares a few controls
-  (`LED ON`, `LED OFF`, `BLINK`, slider `LYS`) and drives only the onboard LED.
+  (`LED ON`, `LED OFF`, `BLINK`, and a `BLINK FART` slider for blink speed) and drives
+  only the onboard LED.
 
 Flash both files to the Pico W. On first connect the device is **unowned**, so the app
 runs the Create flow; after that it streams its control-panel layout. Settings and

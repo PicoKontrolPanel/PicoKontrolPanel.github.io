@@ -1,16 +1,21 @@
-// Dot-grid coordinate model. Must match the device's layout meaning exactly:
-// cols=11, rows=31, edgeMargin=50. Origin = bottom-left dot.
+// Dot-grid coordinate model. Must match the device's layout meaning exactly.
+// The grid size (cols x rows) is a per-device property reported by the device
+// (default 11 x 31). edgeMargin=50. Origin = bottom-left dot.
 // Stored coords: centerX2/centerY2 in HALF-cells; spanX/spanY in WHOLE cells.
 
 import type { Control, Rotation } from '../lib/types';
 
-export const GRID_COLS = 11;
-export const GRID_ROWS = 31;
+export const DEFAULT_GRID_COLS = 11;
+export const DEFAULT_GRID_ROWS = 31;
+export const MIN_GRID = 2;
+export const MAX_GRID = 60;
 export const EDGE_MARGIN = 50;
 
 export interface GridGeometry {
   areaW: number;
   areaH: number;
+  cols: number;
+  rows: number;
   stepX: number;
   stepY: number;
 }
@@ -23,14 +28,21 @@ export interface ControlRect {
   height: number;
 }
 
-export function computeGeometry(areaW: number, areaH: number): GridGeometry {
+export function computeGeometry(
+  areaW: number,
+  areaH: number,
+  cols: number = DEFAULT_GRID_COLS,
+  rows: number = DEFAULT_GRID_ROWS,
+): GridGeometry {
   const usableW = Math.max(1, areaW - 2 * EDGE_MARGIN);
   const usableH = Math.max(1, areaH - 2 * EDGE_MARGIN);
   return {
     areaW,
     areaH,
-    stepX: usableW / (GRID_COLS - 1),
-    stepY: usableH / (GRID_ROWS - 1),
+    cols,
+    rows,
+    stepX: usableW / Math.max(1, cols - 1),
+    stepY: usableH / Math.max(1, rows - 1),
   };
 }
 
@@ -65,8 +77,8 @@ export function controlRect(control: Control, geo: GridGeometry): ControlRect | 
 /** All dot positions, for rendering the edit-mode grid. */
 export function gridDots(geo: GridGeometry): { x: number; y: number }[] {
   const dots: { x: number; y: number }[] = [];
-  for (let col = 0; col < GRID_COLS; col += 1) {
-    for (let row = 0; row < GRID_ROWS; row += 1) {
+  for (let col = 0; col < geo.cols; col += 1) {
+    for (let row = 0; row < geo.rows; row += 1) {
       dots.push({
         x: EDGE_MARGIN + col * geo.stepX,
         y: geo.areaH - (EDGE_MARGIN + row * geo.stepY),
@@ -103,8 +115,8 @@ export function snapCenter(
     return Math.max(span, Math.min(maxX2 - span, best));
   };
 
-  const centerX2 = snapAxis(pxX, spanX, (c2) => centerToPxX(c2, geo), GRID_COLS - 1);
-  const centerY2 = snapAxis(pxY, spanY, (c2) => centerToPxY(c2, geo), GRID_ROWS - 1);
+  const centerX2 = snapAxis(pxX, spanX, (c2) => centerToPxX(c2, geo), geo.cols - 1);
+  const centerY2 = snapAxis(pxY, spanY, (c2) => centerToPxY(c2, geo), geo.rows - 1);
   return { centerX2, centerY2 };
 }
 

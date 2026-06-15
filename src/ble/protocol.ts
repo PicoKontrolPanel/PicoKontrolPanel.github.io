@@ -4,6 +4,7 @@
 import type { Control, Rotation, User } from '../lib/types';
 import { BleTransport, displayName } from './transport';
 import { ReliableStream } from './reliableStream';
+import { DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS, MAX_GRID, MIN_GRID } from '../grid/geometry';
 
 export type LogLevel = 'info' | 'success' | 'warning' | 'error';
 
@@ -226,11 +227,13 @@ export class PicoProtocol {
     iconID: number,
     canConnect: boolean,
     canEdit: boolean,
+    cols: number,
+    rows: number,
   ): Promise<void> {
     const c = canConnect ? 1 : 0;
     const e = canConnect && canEdit ? 1 : 0;
     await this.exchange(
-      `create,${user.userID},${user.username},${iconID},${c},${e}`,
+      `create,${user.userID},${user.username},${iconID},${c},${e},${cols},${rows}`,
       (l) => l === 'ACK:create',
       'create',
     );
@@ -329,6 +332,22 @@ export class PicoProtocol {
     this.stream.reset();
     this.events.onDisconnect?.();
   }
+}
+
+/** Read the device's grid size from a `#GRID,<cols>,<rows>` header (default 11x31). */
+export function parseGridHeader(lines: string[]): { cols: number; rows: number } {
+  const clamp = (v: number, fallback: number) =>
+    Number.isFinite(v) ? Math.max(MIN_GRID, Math.min(MAX_GRID, v)) : fallback;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (line.startsWith('#GRID,')) {
+      const parts = line.split(',');
+      const cols = clamp(parseInt(parts[1], 10), DEFAULT_GRID_COLS);
+      const rows = clamp(parseInt(parts[2], 10), DEFAULT_GRID_ROWS);
+      return { cols, rows };
+    }
+  }
+  return { cols: DEFAULT_GRID_COLS, rows: DEFAULT_GRID_ROWS };
 }
 
 /** Parse raw layout lines (device -> app) into Control objects, dedup by name. */

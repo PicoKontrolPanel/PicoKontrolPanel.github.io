@@ -54,14 +54,33 @@ the handoff allows substituting glyphs as long as meanings are preserved.
 - **Permission denial self-disconnect.** On `perm,0,0` the device disconnects itself;
   the app marks the disconnect as expected and shows "Adgang nægtet".
 - **Slider range.** The firmware just echoes the raw value to its `on_write`. The web
-  app uses **integer 0–100**. Confirm against firmware semantics before relying on a
-  scale; `firmware/main.py`'s `LYS` slider treats ≥50 as LED-on.
+  app uses **integer 0–100**. In `firmware/main.py` the `BLINK FART` slider maps that
+  0–100 to the onboard LED's continuous blink speed (true brightness isn't available —
+  the Pico W LED is driven digitally via the CYW43 chip, not PWM).
 - **Name length.** Validation uses **14** chars (firmware `MAX_NAME_LENGTH`), not 32.
+
+## Per-device grid size (extension)
+
+The grid size (cols × rows) is now a **per-device property**, chosen on the Create
+screen (default **11 × 31**, the original ratio). Because the grid defines the
+coordinate space for stored layouts, the **device is the source of truth**:
+
+- Create sends two extra fields:
+  `create,<ownerID>,<ownerName>,<iconID>,<canConnect>,<canEdit>,<cols>,<rows>`
+  (backward compatible — a device ignoring them keeps 11 × 31).
+- The device persists `gridCols/gridRows` in `DeviceSettings.txt` and emits a
+  `#GRID,<cols>,<rows>` header at the top of every layout stream.
+- The app reads that header (`parseGridHeader`) and renders/edits against it;
+  if absent (older firmware) it falls back to 11 × 31. Clamped to 2–60.
+
+This keeps the dot-ratio consistent across phones, tablets, and laptops while
+letting each robot define a grid that suits its number of controls.
 
 ## Edit Mode
 
-Grid model matches the wire format exactly: cols=11, rows=31, edgeMargin=50,
-half-cell `centerX2/centerY2`, whole-cell `spanX/spanY`, rotation 0/90/180/270.
+Grid model matches the wire format exactly: per-device cols × rows (default
+11 × 31), edgeMargin=50, half-cell `centerX2/centerY2`, whole-cell `spanX/spanY`,
+rotation 0/90/180/270.
 Implemented: dot grid, drag with center-snap on release (parity-aware), rotated
 bounding-box **collision** (grey-out + save disabled), **rotate** (−90°/tap with
 re-snap), **add** (from the Add modal, default span 4×5) / **delete** (returns the
