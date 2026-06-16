@@ -28,6 +28,13 @@ export type HandshakeResult =
       canOthersEdit: boolean;
     };
 
+export interface BleFileEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'dir' | 'unknown';
+  size?: number;
+}
+
 interface Waiter {
   match: (line: string) => boolean;
   resolve: (line: string) => void;
@@ -55,6 +62,9 @@ export class PicoProtocol {
   private collectingLayout = false;
   private layoutBuffer: string[] = [];
   private layoutResolve: ((lines: string[]) => void) | null = null;
+  private collectingLines = false;
+  private lineBuffer: string[] = [];
+  private lineResolve: ((lines: string[]) => void) | null = null;
 
   private controlQueue: Promise<void> = Promise.resolve();
   private expectingDisconnect = false;
@@ -104,6 +114,19 @@ export class PicoProtocol {
       return;
     }
 
+    if (this.collectingLines) {
+      if (line === '__END__') {
+        const lines = this.lineBuffer;
+        this.lineBuffer = [];
+        this.collectingLines = false;
+        this.lineResolve?.(lines);
+        this.lineResolve = null;
+        return;
+      }
+      this.lineBuffer.push(line);
+      return;
+    }
+
     if (this.collectingLayout) {
       if (line === '__END__') {
         const lines = this.layoutBuffer;
@@ -149,6 +172,30 @@ export class PicoProtocol {
       }, timeoutMs);
       this.waiters.push({ match, resolve, reject, timer });
     });
+  }
+
+  private async collectLines(command: string, timeoutMs: number, label: string): Promise<string[]> {
+    this.collectingLines = true;
+    this.lineBuffer = [];
+
+    const linesPromise = new Promise<string[]>((resolve, reject) => {
+      this.lineResolve = resolve;
+      const timer = setTimeout(() => {
+        if (this.collectingLines) {
+          this.collectingLines = false;
+          this.lineResolve = null;
+          reject(new Error(`Timeout: ${label}`));
+        }
+      }, timeoutMs);
+      const origResolve = this.lineResolve;
+      this.lineResolve = (lines) => {
+        clearTimeout(timer);
+        origResolve?.(lines);
+      };
+    });
+
+    await this.transport.writeLine(command);
+    return linesPromise;
   }
 
   /** Send a line then wait for a matching reply, retrying the whole exchange. */
@@ -329,6 +376,61 @@ export class PicoProtocol {
     await saved;
   }
 
+  // ---- file management over BLE ----------------------------------------
+  async listFiles(path = '/'): Promise<BleFileEntry[]> {
+    const lines = await this.collectLines(`fs_list,${protocolField(path)}`, HANDSHAKE_TIMEOUT * 3, 'fs_list');
+    return lines
+      .filter((line) => line.startsWith('fs_entry,'))
+      .map((line) => {
+        const [, typeRaw, pathRaw, sizeRaw] = line.split(',');
+        const type = typeRaw === 'file' || typeRaw === 'dir' ? typeRaw : 'unknown';
+        const size = parseInt(sizeRaw ?? '', 10);
+        const cleanPath = pathRaw || '/';
+        return {
+          name: cleanPath.split('/').filter(Boolean).pop() ?? cleanPath,
+          path: cleanPath,
+          type,
+          ...(Number.isFinite(size) && size >= 0 ? { size } : {}),
+        };
+      });
+  }
+
+  async readText(path: string): Promise<string> {
+    const lines = await this.collectLines(`fs_read,${protocolField(path)}`, HANDSHAKE_TIMEOUT * 5, 'fs_read');
+    const error = lines.find((line) => line.startsWith('ERR'));
+    if (error) throw new Error(error);
+    const hex = lines
+      .filter((line) => line.startsWith('fs_data,'))
+      .map((line) => line.slice('fs_data,'.length))
+      .join('');
+    return new TextDecoder().decode(hexToBytes(hex));
+  }
+
+  async writeText(path: string, content: string): Promise<void> {
+    await this.exchange(`fs_write_begin,${protocolField(path)}`, (l) => l === 'ACK:fs_write_begin', 'fs_write_begin', 2);
+    const bytes = new TextEncoder().encode(content);
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const lines: string[] = [];
+    for (let offset = 0; offset < hex.length; offset += 160) {
+      lines.push(`fs_write_chunk,${hex.slice(offset, offset + 160)}`);
+    }
+    lines.push('fs_write_end');
+    const done = this.waitFor((l) => l === 'ACK:fs_write_done' || l.startsWith('ERR'), HANDSHAKE_TIMEOUT * 5, 'fs_write_done');
+    this.stream.sendReliable(lines);
+    const result = await done;
+    if (result.startsWith('ERR')) throw new Error(result);
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    const result = await this.exchange(`fs_delete,${protocolField(path)}`, (l) => l === 'ACK:fs_delete' || l.startsWith('ERR'), 'fs_delete', 2);
+    if (result.startsWith('ERR')) throw new Error(result);
+  }
+
+  async restart(): Promise<void> {
+    await this.exchange('restart', (l) => l === 'ACK:restart' || l.startsWith('ERR'), 'restart', 1).catch(() => {});
+    this.expectingDisconnect = true;
+  }
+
   // ---- control commands (play mode) ------------------------------------
   enqueueButton(name: string): void {
     this.enqueueControl(`button,${name}`);
@@ -377,9 +479,19 @@ export class PicoProtocol {
     this.waiters = [];
     this.collectingLayout = false;
     this.layoutResolve = null;
+    this.collectingLines = false;
+    this.lineResolve = null;
     this.stream.reset();
     this.events.onDisconnect?.();
   }
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(Math.floor(hex.length / 2));
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
 }
 
 /** Read the device's grid size from a `#GRID,<cols>,<rows>` header (default 11x31). */

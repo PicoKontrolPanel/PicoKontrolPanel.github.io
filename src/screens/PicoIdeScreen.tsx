@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { TopBar } from '../components/TopBar';
 import { Modal } from '../components/Modal';
 import { Glyph } from '../assets/icons';
@@ -28,6 +29,15 @@ const DEFAULT_CODE = "print('Hej fra Pico Kontrol Panel')\n";
 
 export function PicoIdeScreen() {
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
+  const askConfirm = useStore((s) => s.askConfirm);
+  const picoIdeOrigin = useStore((s) => s.picoIdeOrigin);
+  const active = useStore((s) => s.active);
+  const isBleConnected = useStore((s) => s.isBleConnected);
+  const bleListFiles = useStore((s) => s.bleListFiles);
+  const bleReadText = useStore((s) => s.bleReadText);
+  const bleWriteText = useStore((s) => s.bleWriteText);
+  const bleDeleteFile = useStore((s) => s.bleDeleteFile);
+  const bleRestart = useStore((s) => s.bleRestart);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [lines, setLines] = useState<TerminalLine[]>([]);
@@ -41,17 +51,32 @@ export function PicoIdeScreen() {
   const [runtimeChecks, setRuntimeChecks] = useState<RuntimeFileCheck[]>([]);
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
+  const [runningOnPico, setRunningOnPico] = useState(false);
+  const [terminalFollow, setTerminalFollow] = useState(true);
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
   const fsRef = useRef<PicoFilesystem | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const terminalRef = useRef<HTMLDivElement | null>(null);
+  const runningRef = useRef(false);
 
   const status = developerModeStatus();
+  const bleMode = picoIdeOrigin === 'control' && !!active && isBleConnected();
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
+      onLine: (line) => {
+        if (runningRef.current && line.trim() && !line.includes('>>>') && !line.includes('raw REPL')) {
+          pushLine('info', line);
+        }
+      },
       onLog: pushLine,
       onDisconnect: () => {
         setConnected(false);
+        setRunningOnPico(false);
+        runningRef.current = false;
         pushLine('warning', 'USB-forbindelse lukket.');
       },
     });
@@ -63,6 +88,13 @@ export function PicoIdeScreen() {
     setLines((current) => [...current.slice(-140), { level, text }]);
   }
 
+  useEffect(() => {
+    if (!terminalFollow) return;
+    const el = terminalRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [lines, terminalFollow]);
+
   function updateLocalDraft(nextPath: string, content: string, uploaded: boolean) {
     setLocalFiles((current) => {
       const next = upsertDraft(current, nextPath, content, uploaded);
@@ -72,6 +104,13 @@ export function PicoIdeScreen() {
   }
 
   const fileRows = buildFileRows(files, localFiles);
+
+  useEffect(() => {
+    if (bleMode) {
+      void listFiles();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bleMode]);
 
   async function connectUsb() {
     if (!status.supported) return;
@@ -115,6 +154,19 @@ export function PicoIdeScreen() {
   }
 
   async function listFiles() {
+    if (bleMode) {
+      setBusy(true);
+      try {
+        const next = await bleListFiles();
+        setFiles(next);
+        pushLine('success', `Læste ${next.length} filer fra Pico via Bluetooth.`);
+      } catch (err) {
+        pushLine('error', err instanceof Error ? err.message : 'BLE filhandling fejlede.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     await listFilesWith(fsRef.current);
   }
 
@@ -133,6 +185,30 @@ export function PicoIdeScreen() {
   }
 
   async function checkRuntimeFiles() {
+    if (bleMode) {
+      setBusy(true);
+      try {
+        const checks: RuntimeFileCheck[] = [];
+        for (const file of REQUIRED_RUNTIME_FILES) {
+          try {
+            const current = await bleReadText(file.path);
+            const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
+            checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres via USB' });
+          } catch {
+            checks.push({ ...file, status: 'missing', detail: 'Mangler' });
+          }
+        }
+        setRuntimeChecks(checks);
+        const missing = checks.filter((check) => check.status === 'missing').length;
+        const outdated = checks.filter((check) => check.status === 'outdated').length;
+        pushLine(missing || outdated ? 'warning' : 'success', `Runtime check: ${missing} mangler, ${outdated} skal opdateres.`);
+      } catch (err) {
+        pushLine('error', err instanceof Error ? err.message : 'BLE runtime check fejlede.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     await checkRuntimeFilesWith(fsRef.current);
   }
 
@@ -144,7 +220,7 @@ export function PicoIdeScreen() {
       for (const file of REQUIRED_RUNTIME_FILES) {
         try {
           const current = await fs.readText(file.path);
-          const ok = current === file.content;
+          const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
           checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres' });
         } catch {
           checks.push({ ...file, status: 'missing', detail: 'Mangler' });
@@ -166,6 +242,22 @@ export function PicoIdeScreen() {
   }
 
   async function readFile(nextPath = path) {
+    if (bleMode) {
+      setBusy(true);
+      try {
+        const text = await bleReadText(nextPath);
+        setPath(nextPath);
+        setEditorText(text);
+        updateLocalDraft(nextPath, text, true);
+        pushLine('success', `Læste ${displayPicoPath(nextPath)} via Bluetooth.`);
+      } catch (err) {
+        pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     await withFs(async (fs) => {
       const text = await fs.readText(nextPath);
       setPath(nextPath);
@@ -175,13 +267,34 @@ export function PicoIdeScreen() {
     });
   }
 
-  async function saveFile() {
-    if (!fsRef.current) {
-      updateLocalDraft(path, editorText, false);
-      pushLine('success', `Gemte ${displayPicoPath(path)} lokalt.`);
+  function saveFile() {
+    setSaveOpen(true);
+  }
+
+  function saveLocalFile() {
+    updateLocalDraft(path, editorText, false);
+    setSaveOpen(false);
+    pushLine('success', `Gemte ${displayPicoPath(path)} lokalt.`);
+  }
+
+  async function savePicoFile() {
+    if (bleMode) {
+      setBusy(true);
+      try {
+        await bleWriteText(path, editorText);
+        updateLocalDraft(path, editorText, true);
+        setSaveOpen(false);
+        pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
+        await listFiles();
+      } catch (err) {
+        pushLine('error', err instanceof Error ? err.message : 'BLE gem fejlede.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
+    if (!fsRef.current) return;
     await withFs(async (fs) => {
       await fs.writeText(path, editorText);
       updateLocalDraft(path, editorText, true);
@@ -189,9 +302,51 @@ export function PicoIdeScreen() {
       await listFiles();
       await checkRuntimeFiles();
     });
+    setSaveOpen(false);
   }
 
-  async function deleteFile() {
+  function downloadFile() {
+    const blob = new Blob([editorText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = displayPicoPath(path);
+    a.click();
+    URL.revokeObjectURL(url);
+    setSaveOpen(false);
+    pushLine('success', `Downloadede ${displayPicoPath(path)}.`);
+  }
+
+  function deleteFile() {
+    askConfirm({
+      title: 'Slet fil',
+      message: `Vil du slette ${displayPicoPath(path)}?`,
+      confirmLabel: 'Slet',
+      onConfirm: () => {
+        void deleteFileConfirmed();
+      },
+    });
+  }
+
+  async function deleteFileConfirmed() {
+    if (bleMode) {
+      setBusy(true);
+      try {
+        await bleDeleteFile(path);
+        const next = localFiles.filter((draft) => draft.path !== path);
+        setLocalFiles(next);
+        saveIdeDrafts(next);
+        setEditorText('');
+        pushLine('warning', `Slettede ${displayPicoPath(path)} på Pico via Bluetooth.`);
+        await listFiles();
+      } catch (err) {
+        pushLine('error', err instanceof Error ? err.message : 'BLE sletning fejlede.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (!fsRef.current) {
       const next = localFiles.filter((draft) => draft.path !== path);
       setLocalFiles(next);
@@ -211,6 +366,25 @@ export function PicoIdeScreen() {
       await listFiles();
       await checkRuntimeFiles();
     });
+  }
+
+  async function importFile(file: File | undefined) {
+    if (!file) return;
+    const nextPath = normalizeImportedFileName(file.name);
+    if (!nextPath) {
+      pushLine('error', 'Kun .py, .txt, .json og .csv kan importeres.');
+      return;
+    }
+    if (file.size > 128 * 1024) {
+      pushLine('error', 'Filen er for stor til Pico-værkstedet.');
+      return;
+    }
+
+    const text = await file.text();
+    setPath(nextPath);
+    setEditorText(text);
+    updateLocalDraft(nextPath, text, false);
+    pushLine('success', `Importerede ${displayPicoPath(nextPath)} lokalt.`);
   }
 
   async function newFile() {
@@ -267,11 +441,34 @@ export function PicoIdeScreen() {
   }
 
   async function runEditorCode() {
+    if (bleMode) {
+      await savePicoFile();
+      pushLine('warning', 'Koden er gemt via Bluetooth. Automatisk genstart/genforbindelse er næste trin i planen.');
+      return;
+    }
+
     const repl = replRef.current;
     if (!repl) {
       runLocalPythonPlayground(editorText, pushLine);
       return;
     }
+
+    if (path.endsWith('.py')) {
+      await savePicoFile();
+      setRunningOnPico(true);
+      runningRef.current = true;
+      setTerminalFollow(true);
+      try {
+        await repl.runFile(path);
+        pushLine('success', `Kører ${displayPicoPath(path)}. Brug Stop for at afbryde.`);
+      } catch (err) {
+        setRunningOnPico(false);
+        runningRef.current = false;
+        pushLine('error', err instanceof Error ? err.message : 'Kunne ikke starte koden.');
+      }
+      return;
+    }
+
     setBusy(true);
     try {
       const result = await repl.exec(editorText, 20000);
@@ -285,23 +482,36 @@ export function PicoIdeScreen() {
     }
   }
 
-  async function softResetPico() {
+  async function stopPicoCode() {
     const repl = replRef.current;
     if (!repl) return;
-    setBusy(true);
     try {
-      await repl.softReset();
-      pushLine('success', 'Sendte soft reset til Pico.');
+      await repl.stop();
+      pushLine('warning', 'Stoppede koden på Pico.');
     } catch (err) {
-      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke genstarte Pico.');
+      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke stoppe koden.');
     } finally {
-      setBusy(false);
+      setRunningOnPico(false);
+      runningRef.current = false;
+      setTerminalFollow(true);
     }
+  }
+
+  function onTerminalScroll() {
+    const el = terminalRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 12;
+    setTerminalFollow(atBottom);
+  }
+
+  function clearTerminal() {
+    setLines([]);
+    setTerminalFollow(true);
   }
 
   return (
     <div className="screen ide-screen">
-      <TopBar title="Pico IDE" onMenu={() => toggleSideMenu()} />
+      <TopBar title="Pico Kodeværksted" onMenu={() => toggleSideMenu()} />
 
       <div className="ide-layout">
         <section className="ide-panel ide-files-panel">
@@ -311,7 +521,10 @@ export function PicoIdeScreen() {
               <button className="btn btn-outline" type="button" onClick={newFile}>
                 Ny
               </button>
-              <button className="btn btn-outline" type="button" onClick={listFiles} disabled={!connected || busy}>
+              <button className="btn btn-outline" type="button" onClick={() => uploadInputRef.current?.click()}>
+                Importer
+              </button>
+              <button className="btn btn-outline" type="button" onClick={listFiles} disabled={(!connected && !bleMode) || busy}>
                 Opdater
               </button>
             </div>
@@ -342,24 +555,26 @@ export function PicoIdeScreen() {
 
         <section className="ide-panel ide-status-panel">
           <div>
-            <h2>USB udvikling</h2>
-            <p>{status.message}</p>
+            <h2>{bleMode ? 'Forbundet Pico' : 'USB udvikling'}</h2>
+            <p>{bleMode ? `${active?.deviceName ?? 'Pico'} er forbundet via Bluetooth.` : status.message}</p>
           </div>
-          <div className="ide-actions">
-            <button className="btn btn-primary" type="button" onClick={connectUsb} disabled={!status.supported || connected || connecting}>
-              <Glyph name="power" size={22} />
-              {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
-            </button>
-            <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={disconnectUsb} disabled={!connected}>
-              Afbryd
-            </button>
-          </div>
+          {!bleMode && (
+            <div className="ide-actions">
+              <button className="btn btn-primary" type="button" onClick={connectUsb} disabled={!status.supported || connected || connecting}>
+                <Glyph name="power" size={22} />
+                {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
+              </button>
+              <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={disconnectUsb} disabled={!connected}>
+                Afbryd
+              </button>
+            </div>
+          )}
           <div className="ide-runtime">
             <div className="ide-mini-actions">
-              <button className="btn btn-outline" type="button" onClick={checkRuntimeFiles} disabled={!connected || busy}>
+              <button className="btn btn-outline" type="button" onClick={checkRuntimeFiles} disabled={(!connected && !bleMode) || busy}>
                 Tjek filer
               </button>
-              <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={!connected || busy}>
+              <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={!connected || bleMode || busy}>
                 Installer
               </button>
             </div>
@@ -384,8 +599,8 @@ export function PicoIdeScreen() {
               <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={busy}>
                 Kør
               </button>
-              <button className="btn btn-outline" type="button" onClick={softResetPico} disabled={!connected || busy}>
-                Reset
+              <button className="btn btn-outline" type="button" onClick={stopPicoCode} disabled={!connected || !runningOnPico}>
+                Stop
               </button>
               <button className="btn btn-primary" type="button" onClick={saveFile} disabled={busy || !path.trim()}>
                 Gem
@@ -395,17 +610,32 @@ export function PicoIdeScreen() {
               </button>
             </div>
           </div>
-          <textarea className="ide-editor" value={editorText} onChange={(e) => setEditorText(e.target.value)} spellCheck={false} />
+          <div className="ide-editor-wrap">
+            <pre
+              className="ide-highlight"
+              aria-hidden="true"
+              style={{ transform: `translate(${-editorScroll.left}px, ${-editorScroll.top}px)` }}
+            >
+              {highlightPython(editorText)}
+            </pre>
+            <textarea
+              className="ide-editor"
+              value={editorText}
+              onChange={(e) => setEditorText(e.target.value)}
+              onScroll={(e) => setEditorScroll({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
+              spellCheck={false}
+            />
+          </div>
         </section>
 
         <section className="ide-panel ide-terminal-panel">
           <div className="ide-panel-head">
             <h2>Terminal</h2>
-            <button className="btn btn-outline" type="button" onClick={() => setLines([])} disabled={lines.length === 0}>
+            <button className="btn btn-outline" type="button" onClick={clearTerminal} disabled={lines.length === 0}>
               Ryd
             </button>
           </div>
-          <div className="ide-terminal" aria-live="polite">
+          <div className="ide-terminal" aria-live="polite" ref={terminalRef} onScroll={onTerminalScroll}>
             {lines.length === 0 ? (
               <div className="term-line">Ingen USB data endnu.</div>
             ) : (
@@ -418,6 +648,33 @@ export function PicoIdeScreen() {
           </div>
         </section>
       </div>
+
+      <input
+        ref={uploadInputRef}
+        type="file"
+        accept=".py,.txt,.json,.csv"
+        className="sr-only"
+        onChange={(e) => {
+          void importFile(e.target.files?.[0]);
+          e.currentTarget.value = '';
+        }}
+      />
+
+      {saveOpen && (
+        <Modal title="Gem fil" onClose={() => setSaveOpen(false)}>
+          <div className="ide-save-options">
+            <button className="btn btn-primary" type="button" onClick={saveLocalFile}>
+              Gem lokalt
+            </button>
+              <button className="btn btn-primary" type="button" onClick={savePicoFile} disabled={(!connected && !bleMode) || busy}>
+                Gem på Pico
+              </button>
+            <button className="btn btn-outline" type="button" onClick={downloadFile}>
+              Download til computer
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {newFileOpen && (
         <Modal title="Ny Python-fil" onClose={() => setNewFileOpen(false)}>
@@ -463,8 +720,90 @@ function normalizePicoFileName(value: string): string {
   return cleaned ? `/${cleaned}.py` : '';
 }
 
+function normalizeImportedFileName(value: string): string {
+  const raw = value
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .pop();
+  const match = raw?.match(/^(.+)\.(py|txt|json|csv)$/i);
+  if (!match) return '';
+  const base = match[1].replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^_+|_+$/g, '');
+  return base ? `/${base}.${match[2].toLowerCase()}` : '';
+}
+
+function normalizeRuntimeContent(value: string): string {
+  return value.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
+}
+
 function displayPicoPath(value: string): string {
   return value.split('/').filter(Boolean).pop() ?? value;
+}
+
+function highlightPython(code: string) {
+  const keywordPattern =
+    /\b(False|None|True|and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield)\b/g;
+  const tokenPattern = /(#.*$|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?\b|\b(?:print|range|len|str|int|float|bool|list|dict|set|tuple|sum|min|max|abs|round)\b)/gm;
+  const nodes: ReactNode[] = [];
+
+  code.split(/(\r?\n)/).forEach((part, lineIndex) => {
+    if (part === '\n' || part === '\r\n') {
+      nodes.push(<br key={`br-${lineIndex}`} />);
+      return;
+    }
+
+    let cursor = 0;
+    const matches = [...part.matchAll(tokenPattern)];
+    matches.forEach((match, matchIndex) => {
+      const start = match.index ?? 0;
+      if (start > cursor) {
+        nodes.push(...highlightKeywords(part.slice(cursor, start), keywordPattern, `${lineIndex}-${matchIndex}-plain`));
+      }
+      const token = match[0];
+      const className = token.startsWith('#')
+        ? 'tok-comment'
+        : token.startsWith('"') || token.startsWith("'")
+          ? 'tok-string'
+          : /^\d/.test(token)
+            ? 'tok-number'
+            : 'tok-builtin';
+      nodes.push(
+        <span className={className} key={`${lineIndex}-${matchIndex}-token`}>
+          {token}
+        </span>,
+      );
+      cursor = start + token.length;
+    });
+
+    if (cursor < part.length) {
+      nodes.push(...highlightKeywords(part.slice(cursor), keywordPattern, `${lineIndex}-tail`));
+    }
+  });
+
+  return nodes.length ? nodes : ' ';
+}
+
+function highlightKeywords(text: string, pattern: RegExp, keyBase: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  const local = new RegExp(pattern.source, 'g');
+  [...text.matchAll(local)].forEach((match, index) => {
+    const start = match.index ?? 0;
+    if (start > cursor) {
+      nodes.push(<span key={`${keyBase}-${index}-plain`}>{text.slice(cursor, start)}</span>);
+    }
+    nodes.push(
+      <span className="tok-keyword" key={`${keyBase}-${index}-keyword`}>
+        {match[0]}
+      </span>,
+    );
+    cursor = start + match[0].length;
+  });
+  if (cursor < text.length) {
+    nodes.push(<span key={`${keyBase}-plain-end`}>{text.slice(cursor)}</span>);
+  }
+  return nodes;
 }
 
 function ensureDefaultDraft(drafts: IdeDraft[]): IdeDraft[] {

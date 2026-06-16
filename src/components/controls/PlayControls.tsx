@@ -32,7 +32,8 @@ function sliderTextMetrics(
   vertical: boolean,
   showEnds: boolean,
 ): { fontSize: number; endFontSize: number; centerInset: React.CSSProperties } {
-  const chars = Math.max(1, name.length);
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const chars = Math.max(1, name.replace(/\s+/g, '').length + Math.max(0, words.length - 1) * 1.6);
   const endFontSize = showEnds
     ? clampTextSize(Math.min(width / 4.6, height / 4.6, 12))
     : 0;
@@ -102,19 +103,35 @@ export function PlayControl({ control, rect, disabled, latestValue, onButton, on
 /** Label content: horizontal text, or an upright top-to-bottom character stack. */
 function labelContent(name: string, vertical: boolean): React.ReactNode {
   if (!vertical) return name;
+  const words = name.trim().split(/\s+/).filter(Boolean);
   return (
     <span
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
+        justifyContent: 'center',
+        height: '100%',
         width: '100%',
         lineHeight: 1.02,
         textAlign: 'center',
+        gap: '0.42em',
       }}
     >
-      {[...name].map((ch, i) => (
-        <span key={i}>{ch === ' ' ? ' ' : ch}</span>
+      {words.map((word, wordIndex) => (
+        <span
+          key={`${word}-${wordIndex}`}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {[...word].map((ch, i) => (
+            <span key={`${ch}-${i}`}>{ch}</span>
+          ))}
+        </span>
       ))}
     </span>
   );
@@ -179,6 +196,7 @@ function SliderTextLayer({
           justifyContent: 'center',
           fontWeight: 800,
           fontSize,
+          textAlign: 'center',
           pointerEvents: 'none',
         }}
       >

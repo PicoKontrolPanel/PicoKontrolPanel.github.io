@@ -68,6 +68,18 @@
 - The USB development panel intentionally sits below the files panel to give
   the editor more horizontal and vertical space on desktop screens.
 
+## Current improvement checklist
+
+1. Terminal should auto-follow newest output while the user is already at the bottom.
+2. If the user scrolls up, terminal output must not force-scroll.
+3. If the user scrolls back to the bottom or clears the terminal, auto-follow resumes.
+4. Failed known-device connections should return to the same dashboard tab.
+5. Runtime checks should compare normalized file contents, so line endings do not create false outdated warnings.
+6. Long-running Pico code should run in streaming mode instead of raw REPL wait mode.
+7. The editor needs a real Stop command that sends keyboard interrupt to the Pico.
+8. MicroPython install support should start as guided BOOTSEL/UF2 installation, then grow into richer browser-assisted setup where browser APIs allow it.
+9. To compete with Thonny for classroom use, the app needs: board detection, firmware UF2 guidance, robust file sync, streaming terminal, stop/restart, traceback display, syntax highlighting, import/export, safe runtime install, and recovery mode.
+
 ## Platform posture
 
 - Desktop Chrome/Edge and Chromebooks are the primary IDE targets.

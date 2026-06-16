@@ -11,7 +11,7 @@ import {
   saveUser,
   upsertDevice,
 } from '../lib/storage';
-import { PicoProtocol, parseGridHeader, parseLayout, type LogLevel } from '../ble/protocol';
+import { PicoProtocol, parseGridHeader, parseLayout, type BleFileEntry, type LogLevel } from '../ble/protocol';
 import { displayName, requestDevice } from '../ble/transport';
 import { DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS } from '../grid/geometry';
 
@@ -30,6 +30,9 @@ export type MenuPage =
   | 'application-help'
   | 'device-settings'
   | 'device-help';
+
+export type DashboardPage = 'mine' | 'andre';
+export type PicoIdeOrigin = 'dashboard' | 'control';
 
 export interface LogEntry {
   level: LogLevel;
@@ -83,6 +86,8 @@ interface AppState {
   debuggerOpen: boolean;
   menuPage: MenuPage | null;
   editMode: boolean;
+  dashboardPage: DashboardPage;
+  picoIdeOrigin: PicoIdeOrigin;
 
   // actions
   init: () => void;
@@ -111,6 +116,12 @@ interface AppState {
   updateUsername: (username: string) => void;
   openPicoIde: () => void;
   closePicoIde: () => void;
+  isBleConnected: () => boolean;
+  bleListFiles: () => Promise<BleFileEntry[]>;
+  bleReadText: (path: string) => Promise<string>;
+  bleWriteText: (path: string, content: string) => Promise<void>;
+  bleDeleteFile: (path: string) => Promise<void>;
+  bleRestart: () => Promise<void>;
   reconnectLostDevice: () => Promise<void>;
   dismissConnectionLost: () => void;
 
@@ -119,6 +130,7 @@ interface AppState {
   saveLayout: (controls: Control[]) => Promise<void>;
 
   setEditMode: (on: boolean) => void;
+  setDashboardPage: (page: DashboardPage) => void;
   toggleSideMenu: (open?: boolean) => void;
   toggleDebugger: (open?: boolean) => void;
   openMenuPage: (page: MenuPage) => void;
@@ -160,8 +172,8 @@ export const useStore = create<AppState>((set, get) => {
     onProgress: (value, label) => set({ progress: { value, label } }),
     onLog: (level, message) => pushLog(level, message),
     onDisconnect: () => {
-      const { screen, active } = get();
-      if (screen === 'control' || screen === 'connection' || screen === 'create') {
+      const { screen, active, picoIdeOrigin } = get();
+      if (screen === 'control' || screen === 'connection' || screen === 'create' || (screen === 'ide' && picoIdeOrigin === 'control')) {
         const lostDevice: SavedDevice | null =
           !suppressNextDisconnect && active
             ? {
@@ -206,6 +218,8 @@ export const useStore = create<AppState>((set, get) => {
     debuggerOpen: false,
     menuPage: null,
     editMode: false,
+    dashboardPage: 'mine',
+    picoIdeOrigin: 'dashboard',
 
     init: () => {
       const user = loadUser();
@@ -464,17 +478,49 @@ export const useStore = create<AppState>((set, get) => {
       pushToast('Brugernavn gemt.');
     },
 
-    openPicoIde: () =>
-      set({
+    openPicoIde: () => {
+      const fromControl = get().screen === 'control' && !!protocol?.connected;
+      set((s) => ({
         screen: 'ide',
-        active: null,
-        layout: [],
-        sliderValues: {},
+        picoIdeOrigin: fromControl ? 'control' : 'dashboard',
+        active: fromControl ? s.active : null,
+        layout: fromControl ? s.layout : [],
+        sliderValues: fromControl ? s.sliderValues : {},
         editMode: false,
         sideMenuOpen: false,
         menuPage: null,
-      }),
-    closePicoIde: () => set({ screen: 'dashboard', sideMenuOpen: false, menuPage: null }),
+      }));
+    },
+    closePicoIde: () => {
+      const { picoIdeOrigin, active } = get();
+      set({
+        screen: picoIdeOrigin === 'control' && active && protocol?.connected ? 'control' : 'dashboard',
+        sideMenuOpen: false,
+        menuPage: null,
+        picoIdeOrigin: 'dashboard',
+      });
+    },
+    isBleConnected: () => !!protocol?.connected,
+    bleListFiles: async () => {
+      if (!protocol?.connected) return [];
+      return protocol.listFiles('/');
+    },
+    bleReadText: async (path) => {
+      if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
+      return protocol.readText(path);
+    },
+    bleWriteText: async (path, content) => {
+      if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
+      await protocol.writeText(path, content);
+    },
+    bleDeleteFile: async (path) => {
+      if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
+      await protocol.deleteFile(path);
+    },
+    bleRestart: async () => {
+      if (!protocol?.connected) return;
+      await protocol.restart();
+    },
 
     reconnectLostDevice: async () => {
       const saved = get().connectionLost;
@@ -518,6 +564,7 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     setEditMode: (on) => set({ editMode: on, sideMenuOpen: false, menuPage: null }),
+    setDashboardPage: (page) => set({ dashboardPage: page }),
     toggleSideMenu: (open) => set((s) => ({ sideMenuOpen: open ?? !s.sideMenuOpen })),
     toggleDebugger: (open) => set((s) => ({ debuggerOpen: open ?? !s.debuggerOpen, sideMenuOpen: false, menuPage: null })),
     openMenuPage: (page) => set({ menuPage: page, sideMenuOpen: false }),

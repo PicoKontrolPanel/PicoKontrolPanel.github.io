@@ -3,6 +3,8 @@ import utime as time
 from micropython import const
 import struct
 import os
+import ubinascii
+import machine
 
 __version__ = '0.6.0'
 __author__ = 'Christian Brochner Rasmussen'
@@ -96,6 +98,9 @@ class BLEPeripheral:
         self._rx_layout_buffer = ""
         self._command_buffer = ""
         self._expecting_update = False
+        self._expecting_file_write = False
+        self._file_write_path = None
+        self._file_write_tmp = None
         self._in_reliable_stream_active = False
         self._in_reliable_expected_total = 0
         self._in_reliable_stream_id = 0
@@ -450,6 +455,9 @@ class BLEPeripheral:
         self._rx_layout_buffer = ""
         self._command_buffer = ""
         self._expecting_update = False
+        self._expecting_file_write = False
+        self._file_write_path = None
+        self._file_write_tmp = None
         self._in_reliable_stream_active = False
         self._in_reliable_expected_total = 0
         self._in_reliable_stream_id = 0
@@ -657,6 +665,16 @@ class BLEPeripheral:
 
     # -------------------- Protocol handlers --------------------
     def _process_message(self, msg):
+        if self._expecting_file_write and msg != "disconnect":
+            if msg == "fs_write_end":
+                self._finish_file_write()
+                return
+            if msg.startswith("fs_write_chunk,"):
+                self._append_file_write_chunk(msg.split(",", 1)[1])
+                return
+            self._send_reliable_stream(["ERR: Unexpected file write data"])
+            return
+
         if self._expecting_update and msg != "disconnect":
             if msg == "__END__":
                 self._handle_full_layout_update(self._rx_layout_buffer)
@@ -679,6 +697,23 @@ class BLEPeripheral:
 
         elif msg == "request":
             self.send_layout_to_unity()
+
+        elif msg.startswith("fs_list"):
+            self._handle_fs_list(msg)
+
+        elif msg.startswith("fs_read,"):
+            self._handle_fs_read(msg)
+
+        elif msg.startswith("fs_write_begin,"):
+            self._handle_fs_write_begin(msg)
+
+        elif msg.startswith("fs_delete,"):
+            self._handle_fs_delete(msg)
+
+        elif msg == "restart":
+            self._send_reliable_stream(["ACK:restart"])
+            time.sleep_ms(120)
+            machine.reset()
 
         elif msg == "disconnect":
             self._send_reliable_stream(["ACK:disconnect"])
@@ -946,6 +981,140 @@ class BLEPeripheral:
         except Exception as e:
             print("Error parsing layout update:", e)
             self._send_reliable_stream(["ERR: Failed to parse layout."])
+
+    # -------------------- BLE file management --------------------
+    def _clean_fs_path(self, raw):
+        try:
+            path = str(raw).strip().replace("\\", "/")
+        except:
+            path = ""
+        if not path:
+            return "/"
+        if ".." in path:
+            return ""
+        if not path.startswith("/"):
+            path = "/" + path
+        return path
+
+    def _path_for_open(self, path):
+        return path[1:] if path.startswith("/") else path
+
+    def _handle_fs_list(self, msg):
+        parts = msg.split(",", 1)
+        base = self._clean_fs_path(parts[1] if len(parts) > 1 else "/")
+        if not base:
+            self._send_reliable_stream(["ERR: Bad path", "__END__"])
+            return
+        open_base = self._path_for_open(base)
+        if open_base == "":
+            open_base = "."
+        lines = []
+        try:
+            for name in os.listdir(open_base):
+                path = (base.rstrip("/") + "/" + name) if base != "/" else "/" + name
+                try:
+                    st = os.stat(self._path_for_open(path))
+                    mode = st[0]
+                    kind = "dir" if (mode & 0x4000) else "file"
+                    size = st[6]
+                except:
+                    kind = "unknown"
+                    size = -1
+                lines.append("fs_entry,{},{},{}".format(kind, path, size))
+            lines.append("__END__")
+            self._send_reliable_stream(lines)
+        except Exception as e:
+            self._send_reliable_stream(["ERR: fs_list failed {}".format(e), "__END__"])
+
+    def _handle_fs_read(self, msg):
+        path = self._clean_fs_path(msg.split(",", 1)[1])
+        if not path:
+            self._send_reliable_stream(["ERR: Bad path", "__END__"])
+            return
+        lines = []
+        try:
+            st = os.stat(self._path_for_open(path))
+            lines.append("fs_file,{},{}".format(path, st[6]))
+            with open(self._path_for_open(path), "rb") as f:
+                while True:
+                    chunk = f.read(80)
+                    if not chunk:
+                        break
+                    lines.append("fs_data,{}".format(ubinascii.hexlify(chunk).decode()))
+            lines.append("__END__")
+            self._send_reliable_stream(lines)
+        except Exception as e:
+            self._send_reliable_stream(["ERR: fs_read failed {}".format(e), "__END__"])
+
+    def _handle_fs_write_begin(self, msg):
+        if not self._session_can_edit:
+            self._send_reliable_stream(["ERR: Edit not permitted"])
+            return
+        path = self._clean_fs_path(msg.split(",", 1)[1])
+        if not path:
+            self._send_reliable_stream(["ERR: Bad path"])
+            return
+        protected = ("/BLEPeripheral.py", "/main.py")
+        # Runtime files should only be changed through USB installer/recovery.
+        if path in protected:
+            self._send_reliable_stream(["ERR: Protected runtime file"])
+            return
+        self._file_write_path = self._path_for_open(path)
+        self._file_write_tmp = self._file_write_path + ".tmp"
+        try:
+            with open(self._file_write_tmp, "wb") as f:
+                pass
+            self._expecting_file_write = True
+            self._send_reliable_stream(["ACK:fs_write_begin"])
+        except Exception as e:
+            self._send_reliable_stream(["ERR: fs_write_begin failed {}".format(e)])
+
+    def _append_file_write_chunk(self, hex_data):
+        if not self._file_write_tmp:
+            self._send_reliable_stream(["ERR: No file write active"])
+            self._expecting_file_write = False
+            return
+        try:
+            data = ubinascii.unhexlify(hex_data)
+            with open(self._file_write_tmp, "ab") as f:
+                f.write(data)
+        except Exception as e:
+            self._expecting_file_write = False
+            self._send_reliable_stream(["ERR: fs_write_chunk failed {}".format(e)])
+
+    def _finish_file_write(self):
+        try:
+            bak = self._file_write_path + ".bak"
+            try:
+                os.remove(bak)
+            except:
+                pass
+            try:
+                os.rename(self._file_write_path, bak)
+            except:
+                pass
+            os.rename(self._file_write_tmp, self._file_write_path)
+            self._send_reliable_stream(["ACK:fs_write_done"])
+        except Exception as e:
+            self._send_reliable_stream(["ERR: fs_write_end failed {}".format(e)])
+        finally:
+            self._expecting_file_write = False
+            self._file_write_path = None
+            self._file_write_tmp = None
+
+    def _handle_fs_delete(self, msg):
+        if not self._session_can_edit:
+            self._send_reliable_stream(["ERR: Edit not permitted"])
+            return
+        path = self._clean_fs_path(msg.split(",", 1)[1])
+        if path in ("/BLEPeripheral.py", "/main.py"):
+            self._send_reliable_stream(["ERR: Protected runtime file"])
+            return
+        try:
+            os.remove(self._path_for_open(path))
+            self._send_reliable_stream(["ACK:fs_delete"])
+        except Exception as e:
+            self._send_reliable_stream(["ERR: fs_delete failed {}".format(e)])
 
     # -------------------- External hooks --------------------
     def on_write(self, callback):

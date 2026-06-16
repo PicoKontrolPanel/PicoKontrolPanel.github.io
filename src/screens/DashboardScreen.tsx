@@ -7,16 +7,15 @@ import { getPermittedDevices, isBluetoothSupported } from '../ble/transport';
 import { useStore } from '../store/store';
 import type { SavedDevice } from '../lib/types';
 
-type Page = 'mine' | 'andre';
-
 export function DashboardScreen() {
   const savedDevices = useStore((s) => s.savedDevices);
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
   const findDevice = useStore((s) => s.findDevice);
   const removeSavedDevice = useStore((s) => s.removeSavedDevice);
   const askConfirm = useStore((s) => s.askConfirm);
+  const page = useStore((s) => s.dashboardPage);
+  const setPage = useStore((s) => s.setDashboardPage);
   const reconnect = useReconnect();
-  const [page, setPage] = useState<Page>('mine');
   const [settingsDevice, setSettingsDevice] = useState<SavedDevice | null>(null);
 
   const supported = isBluetoothSupported();

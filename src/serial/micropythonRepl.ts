@@ -32,6 +32,17 @@ export class MicroPythonRepl {
     await this.transport.write(CTRL_D);
   }
 
+  async stop(): Promise<void> {
+    await this.interrupt();
+    await this.friendlyRepl().catch(() => {});
+  }
+
+  async runFile(path: string): Promise<void> {
+    await this.interrupt();
+    await this.friendlyRepl().catch(() => {});
+    await this.transport.writeLine(`exec(open(${JSON.stringify(path)}).read())`);
+  }
+
   async enterRawRepl(timeoutMs = 2500): Promise<void> {
     await this.interrupt();
     await delay(80);
