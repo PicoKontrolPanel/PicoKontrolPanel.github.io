@@ -32,6 +32,12 @@ export function MenuPages() {
   const [savingDevice, setSavingDevice] = useState(false);
 
   useEffect(() => {
+    if (page === 'user-settings') {
+      setUsername(user?.username ?? '');
+    }
+  }, [page, user?.username]);
+
+  useEffect(() => {
     if (page === 'device-settings' && active) {
       setIconID(active.iconID);
       setIsPublic(active.canOthersConnect);
