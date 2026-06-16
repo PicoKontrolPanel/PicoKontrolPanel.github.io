@@ -1,4 +1,4 @@
-// Generate a unique user id: 32 hex chars, no dashes (mirrors Unity's UUID.hex).
+// Generate a unique user id: 32 hex chars, no dashes (mirrors Unity's GUID hex).
 export function generateUserID(): string {
   const bytes = new Uint8Array(16);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {

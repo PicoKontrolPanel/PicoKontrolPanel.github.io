@@ -67,7 +67,7 @@ export function MenuPages() {
               placeholder="Brugernavn"
             />
           </div>
-          <InfoRow label="UUID" value={user?.userID ?? 'Ukendt'} />
+          <InfoRow label="GUID" value={user?.userID ?? 'Ukendt'} />
           <button className="btn btn-primary btn-block" type="button" onClick={() => updateUsername(username)}>
             Gem bruger
           </button>
@@ -129,7 +129,7 @@ export function MenuPages() {
         <div className="settings-stack prose">
           <p>Find en Pico W med plus-knappen, forbind til den, og åbn kontrolpanelet.</p>
           <p>Gemte enheder kan forbindes igen fra dashboardet. Enheder du ikke ejer vises under Andre Enheder.</p>
-          <p>Brugerens UUID er fast, så enheder kan genkende ejeren på tværs af app-sessioner.</p>
+          <p>Brugerens GUID er fast, så enheder kan genkende ejeren på tværs af app-sessioner.</p>
         </div>
       </Modal>
     );
