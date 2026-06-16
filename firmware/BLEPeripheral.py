@@ -2,6 +2,7 @@ import ubluetooth
 import utime as time
 from micropython import const
 import struct
+import os
 
 __version__ = '0.6.0'
 __author__ = 'Christian Brochner Rasmussen'
@@ -312,9 +313,14 @@ class BLEPeripheral:
 
     # -------------------- File I/O: Layout --------------------
     def save_layout_to_file(self):
-        """Writes Layout.txt in grid format; 'n' for None."""
+        """Writes Layout.txt in grid format; 'n' for None.
+
+        Writes to a temp file and renames it into place so a power loss
+        mid-write can never leave a half-written (corrupt) Layout.txt.
+        """
+        tmp_file = self._layout_file + ".tmp"
         try:
-            with open(self._layout_file, "w") as f:
+            with open(tmp_file, "w") as f:
                 f.write("#VERSION,{}\n".format(LAYOUT_VERSION))
                 for ctrl in self.controls:
                     x = ctrl["x"] if ctrl["x"] is not None else "n"
@@ -330,35 +336,68 @@ class BLEPeripheral:
                             ctrl['type'], ctrl['name'], x, y, w, h, r, mn, mx, recenter))
                     else:
                         f.write("{},{},{},{},{},{},{}\n".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
+            # Atomic swap. littlefs rename overwrites atomically; FAT needs the
+            # destination removed first, so fall back to remove+rename there.
+            try:
+                os.rename(tmp_file, self._layout_file)
+            except OSError:
+                try:
+                    os.remove(self._layout_file)
+                except OSError:
+                    pass
+                os.rename(tmp_file, self._layout_file)
             print("Layout saved successfully.")
             self.send_with_retry("ACK: Layout saved.\n", max_attempts=3)
         except Exception as e:
             print("Error saving layout:", e)
+            try:
+                os.remove(tmp_file)
+            except OSError:
+                pass
             self.send_with_retry("ERR: Failed to save layout.\n", max_attempts=3)
 
     def load_layout_from_file(self):
-        """Loads Layout.txt and merges onto base controls."""
+        """Loads Layout.txt and merges onto base controls.
+
+        Parsing is tolerant: a single bad line is skipped, never aborting the
+        whole load. A genuinely missing file seeds defaults, but a file that
+        exists yet fails to open is left untouched (never overwritten), so a
+        recoverable file is not destroyed by a transient read error.
+        """
         try:
             with open(self._layout_file, "r") as f:
                 lines = [l.strip() for l in f.readlines() if l.strip()]
+        except OSError as e:
+            # No layout file yet (first boot): seed defaults on disk.
+            print("Layout file not found, seeding defaults. Err:", e)
+            self.controls = [dict(c) for c in self.base_controls]
+            self.save_layout_to_file()
+            return
+        except Exception as e:
+            # File present but unreadable: fall back in memory only and leave
+            # the file intact for inspection/recovery.
+            print("Layout file unreadable, using base controls (file left intact). Err:", e)
+            self.controls = [dict(c) for c in self.base_controls]
+            return
 
-            overrides = {}
-            for line in lines:
-                if line.startswith("#VERSION"):
-                    continue
+        def _to_val(s):
+            if s == "n":
+                return None
+            try:
+                return int(float(s))
+            except:
+                return None
+
+        overrides = {}
+        for line in lines:
+            if line.startswith("#VERSION"):
+                continue
+            try:
                 parts = line.split(",")
                 if len(parts) < 7:
                     print("Skipping malformed layout line:", line)
                     continue
-                ctrl_type, name, x, y, w, h, r = parts
-
-                def _to_val(s):
-                    if s == "n":
-                        return None
-                    try:
-                        return int(float(s))
-                    except:
-                        return None
+                ctrl_type, name, x, y, w, h, r = parts[:7]
 
                 override = {
                     "type": ctrl_type,
@@ -385,25 +424,24 @@ class BLEPeripheral:
                         if parts[9] in SLIDER_RECENTER_MODES:
                             override["recenter"] = parts[9]
                 overrides[name] = override
+            except Exception as e:
+                print("Skipping bad layout line:", line, "err:", e)
+                continue
 
-            updated = []
-            known = set()
-            for base in self.base_controls:
-                c = dict(base)
-                if c["name"] in overrides:
-                    c.update(overrides[c["name"]])
-                updated.append(c)
-                known.add(c["name"])
-            for name, ov in overrides.items():
-                if name not in known:
-                    updated.append(ov)
+        updated = []
+        known = set()
+        for base in self.base_controls:
+            c = dict(base)
+            if c["name"] in overrides:
+                c.update(overrides[c["name"]])
+            updated.append(c)
+            known.add(c["name"])
+        for name, ov in overrides.items():
+            if name not in known:
+                updated.append(ov)
 
-            self.controls = updated
-            print("Layout loaded. Controls:", len(self.controls))
-        except Exception as e:
-            print("Layout not found or invalid. Using base controls. Err:", e)
-            self.controls = [dict(c) for c in self.base_controls]
-            self.save_layout_to_file()
+        self.controls = updated
+        print("Layout loaded. Controls:", len(self.controls))
 
     # -------------------- BLE IRQ / I/O --------------------
     def _reset_protocol_state(self):
@@ -858,7 +896,7 @@ class BLEPeripheral:
                 if len(parts) < 7:
                     print("Skipping malformed update line:", line)
                     continue
-                ctrl_type, name, x, y, w, h, r = parts
+                ctrl_type, name, x, y, w, h, r = parts[:7]
 
                 def _parse_or_none(s):
                     if s == "n":
