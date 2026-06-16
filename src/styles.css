@@ -467,9 +467,10 @@ button:disabled {
 
 .sidemenu {
   --sidemenu-w: clamp(68px, 7vw, 96px);
+  --sidemenu-right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) / 2 + 20px));
   position: absolute;
   top: var(--topbar-h);
-  right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) / 2 + 20px));
+  right: var(--sidemenu-right);
   bottom: 0;
   width: var(--sidemenu-w);
   background: var(--red);
@@ -479,7 +480,7 @@ button:disabled {
   align-items: center;
   padding: clamp(12px, 1.5vh, 22px) 0;
   gap: clamp(6px, 1vh, 14px);
-  animation: slidein 280ms ease;
+  animation: slidein 280ms ease both;
 }
 
 .sidemenu::after {
@@ -495,14 +496,15 @@ button:disabled {
 
 @keyframes slidein {
   from {
-    transform: translateX(100%);
+    transform: translateX(calc(100vw + var(--sidemenu-right)));
   }
   to {
     transform: translateX(0);
   }
 }
 
-.sidemenu button {
+.sidemenu button,
+.sidemenu-link {
   color: var(--white);
   width: 52px;
   height: 52px;
@@ -510,9 +512,11 @@ button:disabled {
   display: grid;
   place-items: center;
   gap: 10px;
+  text-decoration: none;
 }
 
-.sidemenu button:active {
+.sidemenu button:active,
+.sidemenu-link:active {
   background: var(--red-dark);
 }
 
@@ -525,40 +529,27 @@ button:disabled {
   flex: 1;
 }
 
-.sidemenu-logo-link {
-  position: relative;
-  z-index: 1;
-  width: 52px;
-  min-height: 62px;
-  border-radius: 16px;
-  display: grid;
-  place-items: center;
-  color: var(--white);
-}
-
-.sidemenu-logo-link:active {
-  background: var(--red-dark);
-}
-
-.sidemenu-logo-link img {
-  width: 38px;
-  height: auto;
+.sidemenu-link img {
+  width: auto;
+  height: 26px;
   display: block;
 }
 
-.sidemenu button span {
+.sidemenu button span,
+.sidemenu-link span {
   display: none;
 }
 
 @media (min-width: 760px) {
   .sidemenu {
     --sidemenu-w: clamp(150px, 12vw, 184px);
-    right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) + 60px));
+    --sidemenu-right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) + 60px));
     align-items: stretch;
     padding-inline: 10px;
   }
 
-  .sidemenu button {
+  .sidemenu button,
+  .sidemenu-link {
     width: 100%;
     grid-template-columns: 32px 1fr;
     justify-items: start;
@@ -566,25 +557,18 @@ button:disabled {
     font-weight: 800;
   }
 
-  .sidemenu button svg {
+  .sidemenu button svg,
+  .sidemenu-link img {
     justify-self: center;
   }
 
-  .sidemenu button span {
+  .sidemenu button span,
+  .sidemenu-link span {
     display: block;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .sidemenu-logo-link {
-    width: 100%;
-    min-height: 76px;
-  }
-
-  .sidemenu-logo-link img {
-    width: 50px;
   }
 }
 

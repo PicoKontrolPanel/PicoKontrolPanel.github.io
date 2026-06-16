@@ -23,6 +23,7 @@ export function SideMenu() {
             <MenuButton label="Bruger" icon="user" onClick={() => openMenuPage('user-settings')} />
             <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('application-settings')} />
             <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('application-help')} />
+            <TeknologiskolenLink />
             <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
           </>
         )}
@@ -32,20 +33,12 @@ export function SideMenu() {
             <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('device-settings')} />
             <MenuButton label="Rediger" icon="edit" onClick={() => setEditMode(true)} disabled={!canEdit} />
             <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('device-help')} />
+            <TeknologiskolenLink />
             <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
           </>
         )}
 
         <div className="spacer" />
-        <a
-          className="sidemenu-logo-link"
-          href="https://www.teknologiskolen.dk/"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Åbn Teknologiskolen"
-        >
-          <img src={teknologiskolenLogoUrl} alt="Teknologiskolen" />
-        </a>
         {onControlPanel && <MenuButton label="Forlad" icon="exit" onClick={() => disconnect()} />}
       </nav>
     </>
@@ -68,5 +61,20 @@ function MenuButton({
       <Glyph name={icon} />
       <span>{label}</span>
     </button>
+  );
+}
+
+function TeknologiskolenLink() {
+  return (
+    <a
+      className="iconbtn sidemenu-link"
+      href="https://www.teknologiskolen.dk/"
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Teknologiskolen"
+    >
+      <img src={teknologiskolenLogoUrl} alt="" />
+      <span>Teknologiskolen</span>
+    </a>
   );
 }
