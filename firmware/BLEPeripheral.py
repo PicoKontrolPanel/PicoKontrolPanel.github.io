@@ -37,7 +37,7 @@ class BLEPeripheral:
 
     Handshake (app drives):
       - 'HELLO'                          -> 'ACK:HELLO'
-      - 'who_are_you'                    -> 'unowned' | 'owned,<ownerID>,<iconID>,<canConnect>,<canEdit>'
+      - 'who_are_you'                    -> 'unowned' | 'owned,<ownerID>,<iconID>,<canConnect>,<canEdit>,<ownerName>'
       - 'ACK:ownership'                  -> 'READY:permission'  (staged, optional)
       - 'request_permission,<id>,<name>' -> 'perm,<canConnect>,<canEdit>'
                                             (denies + disconnects if private)
@@ -128,6 +128,14 @@ class BLEPeripheral:
             print("Sent:", msg.strip())
         except:
             print("Sent:", msg)
+
+    def _protocol_field(self, value):
+        if value is None:
+            return ""
+        try:
+            return str(value).replace(",", " ").replace("\r", " ").replace("\n", " ").strip()
+        except:
+            return ""
 
     # -------------------- Init helpers --------------------
     def _initialize_controls(self, base_controls):
@@ -657,23 +665,35 @@ class BLEPeripheral:
 
         elif msg == "who_are_you":
             if self.owner_id:
-                self._send_reliable_stream(["owned,{},{},{},{}".format(
+                self._send_reliable_stream(["owned,{},{},{},{},{}".format(
                     self.owner_id,
                     int(self.icon_id),
                     int(self.can_others_connect),
                     int(self.can_others_edit),
+                    self._protocol_field(self.owner_name),
                 )])
             else:
                 self._send_reliable_stream(["unowned"])
 
         elif msg.startswith("request_permission,"):
-            parts = msg.split(",")
+            parts = msg.split(",", 2)
             if len(parts) < 3:
                 self._send_reliable_stream(["ERR: Malformed request_permission"])
                 return
             requester_id = parts[1]
+            requester_name = self._protocol_field(parts[2])
 
             if self.owner_id and requester_id == self.owner_id:
+                if requester_name and requester_name != self.owner_name:
+                    self.save_settings_to_file(
+                        self.owner_id or "",
+                        requester_name,
+                        self.icon_id,
+                        self.can_others_connect,
+                        self.can_others_edit,
+                        self.grid_cols,
+                        self.grid_rows,
+                    )
                 self._session_can_edit = True
                 self._session_is_owner = True
                 self._send_reliable_stream(["perm,1,1"])
@@ -701,6 +721,7 @@ class BLEPeripheral:
                 self._send_reliable_stream(["ERR: Malformed create command"])
                 return
             _, owner_id, owner_name, icon_id_s, can_connect_s, can_edit_s = parts[:6]
+            owner_name = self._protocol_field(owner_name)
             try:
                 icon_id = int(icon_id_s)
             except:
@@ -767,13 +788,16 @@ class BLEPeripheral:
                 grid_rows = int(parts[5])
             except:
                 grid_rows = self.grid_rows
+            owner_name = self.owner_name or ""
+            if len(parts) >= 7:
+                owner_name = self._protocol_field(parts[6]) or owner_name
 
             if can_connect == 0:
                 can_edit = 0
 
             self.save_settings_to_file(
                 self.owner_id or "",
-                self.owner_name or "",
+                owner_name,
                 icon_id,
                 can_connect,
                 can_edit,

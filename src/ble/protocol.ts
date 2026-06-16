@@ -20,6 +20,7 @@ export type HandshakeResult =
   | {
       kind: 'owned';
       ownerID: string;
+      ownerName?: string;
       iconID: number;
       canEdit: boolean;
       isOwnedByMe: boolean;
@@ -39,6 +40,10 @@ const CONTROL_GAP_MS = 30;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function protocolField(value: string): string {
+  return value.replace(/[\r\n,]/g, ' ').trim();
 }
 
 export class PicoProtocol {
@@ -199,6 +204,7 @@ export class PicoProtocol {
     const iconID = parts[2] !== undefined ? parseInt(parts[2], 10) || 0 : 0;
     const reportedCanConnect = parts[3] !== undefined ? parseInt(parts[3], 10) === 1 : true;
     const reportedCanEdit = parts[4] !== undefined ? parseInt(parts[4], 10) === 1 : false;
+    const ownerName = parts[5]?.trim() || undefined;
 
     // Staged ack -> READY:permission. Optional; tolerate absence.
     try {
@@ -209,7 +215,7 @@ export class PicoProtocol {
 
     this.progress(66, 'Anmoder om adgang...');
     const permLine = await this.exchange(
-      `request_permission,${user.userID},${user.username}`,
+      `request_permission,${user.userID},${protocolField(user.username)}`,
       (l) => l.startsWith('perm,') || l.startsWith('permission_response,'),
       'request_permission',
     );
@@ -231,6 +237,7 @@ export class PicoProtocol {
     return {
       kind: 'owned',
       ownerID,
+      ownerName,
       iconID,
       canEdit: canEditThisSession,
       isOwnedByMe,
@@ -251,7 +258,7 @@ export class PicoProtocol {
     const c = canConnect ? 1 : 0;
     const e = canConnect && canEdit ? 1 : 0;
     await this.exchange(
-      `create,${user.userID},${user.username},${iconID},${c},${e},${cols},${rows}`,
+      `create,${user.userID},${protocolField(user.username)},${iconID},${c},${e},${cols},${rows}`,
       (l) => l === 'ACK:create',
       'create',
     );
@@ -263,11 +270,12 @@ export class PicoProtocol {
     canEdit: boolean,
     cols: number,
     rows: number,
+    ownerName?: string,
   ): Promise<void> {
     const c = canConnect ? 1 : 0;
     const e = canConnect && canEdit ? 1 : 0;
     await this.exchange(
-      `settings_update,${iconID},${c},${e},${cols},${rows}`,
+      `settings_update,${iconID},${c},${e},${cols},${rows},${protocolField(ownerName ?? '')}`,
       (l) => l === 'ACK:settings_update',
       'settings_update',
       3,

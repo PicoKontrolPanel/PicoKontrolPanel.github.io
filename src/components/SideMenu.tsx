@@ -1,7 +1,11 @@
 import { Glyph, teknologiskolenLogoUrl, type GlyphName } from '../assets/icons';
 import { useStore } from '../store/store';
 
-export function SideMenu() {
+interface SideMenuProps {
+  open: boolean;
+}
+
+export function SideMenu({ open }: SideMenuProps) {
   const screen = useStore((s) => s.screen);
   const active = useStore((s) => s.active);
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
@@ -16,8 +20,8 @@ export function SideMenu() {
 
   return (
     <>
-      <div className="scrim" onClick={() => toggleSideMenu(false)} />
-      <nav className="sidemenu" aria-label="Sidemenu">
+      <div className={`scrim ${open ? 'open' : 'closing'}`} onClick={() => toggleSideMenu(false)} />
+      <nav className={`sidemenu ${open ? 'open' : 'closing'}`} aria-label="Sidemenu">
         {onDashboard && (
           <>
             <MenuButton label="Bruger" icon="user" onClick={() => openMenuPage('user-settings')} />

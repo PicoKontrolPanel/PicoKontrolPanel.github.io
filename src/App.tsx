@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from './store/store';
 import { SplashScreen } from './screens/SplashScreen';
 import { IntroScreen } from './screens/IntroScreen';
@@ -18,11 +18,22 @@ function App() {
   const init = useStore((s) => s.init);
   const sideMenuOpen = useStore((s) => s.sideMenuOpen);
   const debuggerOpen = useStore((s) => s.debuggerOpen);
+  const [sideMenuMounted, setSideMenuMounted] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => init(), 1100);
     return () => clearTimeout(timer);
   }, [init]);
+
+  useEffect(() => {
+    if (sideMenuOpen) {
+      setSideMenuMounted(true);
+      return undefined;
+    }
+
+    const timer = setTimeout(() => setSideMenuMounted(false), 140);
+    return () => clearTimeout(timer);
+  }, [sideMenuOpen]);
 
   return (
     <div className="app">
@@ -33,7 +44,7 @@ function App() {
       {screen === 'create' && <CreateDeviceScreen />}
       {screen === 'control' && <ControlPanelScreen />}
 
-      {sideMenuOpen && <SideMenu />}
+      {sideMenuMounted && <SideMenu open={sideMenuOpen} />}
       <MenuPages />
       <ConnectionLost />
       <ConfirmDialog />

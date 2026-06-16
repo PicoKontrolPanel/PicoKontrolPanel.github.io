@@ -453,7 +453,11 @@ button:disabled {
   bottom: 0;
   background: var(--scrim);
   z-index: 8;
-  animation: fade 200ms ease;
+  animation: fade 140ms ease both;
+}
+
+.scrim.closing {
+  animation-name: fadeout;
 }
 
 @keyframes fade {
@@ -462,6 +466,15 @@ button:disabled {
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes fadeout {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }
 
@@ -480,7 +493,11 @@ button:disabled {
   align-items: center;
   padding: clamp(12px, 1.5vh, 22px) 0;
   gap: clamp(6px, 1vh, 14px);
-  animation: slidein 280ms ease both;
+  animation: slidein 140ms ease both;
+}
+
+.sidemenu.closing {
+  animation-name: slideout;
 }
 
 .sidemenu::after {
@@ -500,6 +517,15 @@ button:disabled {
   }
   to {
     transform: translateX(0);
+  }
+}
+
+@keyframes slideout {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(100vw + var(--sidemenu-right)));
   }
 }
 
@@ -542,7 +568,7 @@ button:disabled {
 
 @media (min-width: 760px) {
   .sidemenu {
-    --sidemenu-w: clamp(150px, 12vw, 184px);
+    --sidemenu-w: clamp(220px, 16vw, 250px);
     --sidemenu-right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) + 60px));
     align-items: stretch;
     padding-inline: 10px;

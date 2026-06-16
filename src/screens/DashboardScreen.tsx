@@ -92,7 +92,7 @@ export function DashboardScreen() {
               <strong>{settingsDevice.deviceName}</strong>
             </div>
             <InfoRow label="Gemte indstillinger" value="Denne browser" />
-            <InfoRow label="Ejer" value={settingsDevice.isOwnedByMe ? 'Denne bruger' : 'Anden bruger'} />
+            <InfoRow label="Ejer" value={ownerLabel(settingsDevice)} />
             <InfoRow label="Offentlig" value={settingsDevice.canOthersConnect ? 'Ja' : 'Nej'} />
             <InfoRow label="Andre må redigere" value={settingsDevice.canOthersEdit ? 'Ja' : 'Nej'} />
             <div className="notice">Forbind til enheden for at ændre de indstillinger, der er gemt på Picoen.</div>
@@ -163,6 +163,11 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </div>
   );
+}
+
+function ownerLabel(device: SavedDevice): string {
+  if (device.isOwnedByMe) return 'Dig';
+  return device.ownerName?.trim() || 'Anden bruger';
 }
 
 /** Reconnect to a saved device using getDevices() (permitted devices) where possible. */

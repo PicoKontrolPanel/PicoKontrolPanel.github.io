@@ -49,6 +49,7 @@ export interface SavedDevice {
   canOthersConnect: boolean;
   canOthersEdit: boolean;
   isOwnedByMe: boolean;
+  ownerName?: string;
 }
 
 export const MAX_NAME_LENGTH = 14;

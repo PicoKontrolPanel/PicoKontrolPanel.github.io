@@ -7,6 +7,7 @@ import {
   loadSavedDevices,
   loadUser,
   removeDevice,
+  saveDevices,
   saveUser,
   upsertDevice,
 } from '../lib/storage';
@@ -56,6 +57,7 @@ interface ActiveDevice {
   canOthersConnect: boolean;
   canOthersEdit: boolean;
   isOwnedByMe: boolean;
+  ownerName?: string;
   gridCols: number;
   gridRows: number;
 }
@@ -166,6 +168,7 @@ export const useStore = create<AppState>((set, get) => {
                 canOthersConnect: active.canOthersConnect,
                 canOthersEdit: active.canOthersEdit,
                 isOwnedByMe: active.isOwnedByMe,
+                ownerName: active.ownerName,
               }
             : null;
         suppressNextDisconnect = false;
@@ -266,6 +269,7 @@ export const useStore = create<AppState>((set, get) => {
               canOthersConnect: false,
               canOthersEdit: false,
               isOwnedByMe: true,
+              ownerName: user.username,
               gridCols: DEFAULT_GRID_COLS,
               gridRows: DEFAULT_GRID_ROWS,
             },
@@ -282,6 +286,7 @@ export const useStore = create<AppState>((set, get) => {
           canOthersConnect: result.canOthersConnect,
           canOthersEdit: result.canOthersEdit,
           isOwnedByMe: result.isOwnedByMe,
+          ownerName: result.isOwnedByMe ? user.username : result.ownerName ?? known?.ownerName,
         };
         set({ savedDevices: upsertDevice(saved) });
 
@@ -298,6 +303,7 @@ export const useStore = create<AppState>((set, get) => {
             canOthersConnect: result.canOthersConnect,
             canOthersEdit: result.canOthersEdit,
             isOwnedByMe: result.isOwnedByMe,
+            ownerName: result.isOwnedByMe ? user.username : result.ownerName ?? known?.ownerName,
             gridCols: grid.cols,
             gridRows: grid.rows,
           },
@@ -329,6 +335,7 @@ export const useStore = create<AppState>((set, get) => {
           canOthersConnect: canConnect,
           canOthersEdit: canConnect && canEdit,
           isOwnedByMe: true,
+          ownerName: user.username,
         };
         set({ savedDevices: upsertDevice(saved) });
 
@@ -343,6 +350,7 @@ export const useStore = create<AppState>((set, get) => {
             canEdit: true,
             canOthersConnect: canConnect,
             canOthersEdit: canConnect && canEdit,
+            ownerName: user.username,
             gridCols: grid.cols,
             gridRows: grid.rows,
           },
@@ -359,17 +367,18 @@ export const useStore = create<AppState>((set, get) => {
     },
 
     saveDeviceSettings: async (iconID, canConnect, canEdit, cols, rows) => {
-      const active = get().active;
+      const { active, user } = get();
       if (!active || !protocol || !active.isOwnedByMe) return;
       try {
         protocol.setBusy(true);
-        await protocol.updateDeviceSettings(iconID, canConnect, canEdit, cols, rows);
+        await protocol.updateDeviceSettings(iconID, canConnect, canEdit, cols, rows, user?.username);
         const nextActive = {
           ...active,
           iconID,
           canEdit: true,
           canOthersConnect: canConnect,
           canOthersEdit: canConnect && canEdit,
+          ownerName: user?.username ?? active.ownerName,
           gridCols: cols,
           gridRows: rows,
         };
@@ -380,6 +389,7 @@ export const useStore = create<AppState>((set, get) => {
           canOthersConnect: canConnect,
           canOthersEdit: canConnect && canEdit,
           isOwnedByMe: true,
+          ownerName: user?.username ?? active.ownerName,
         };
         set({ active: nextActive, savedDevices: upsertDevice(saved) });
         pushToast('Enhedsindstillinger gemt.');
@@ -437,7 +447,17 @@ export const useStore = create<AppState>((set, get) => {
       if (!user || !trimmed) return;
       const next = { ...user, username: trimmed };
       saveUser(next);
-      set({ user: next });
+      set((s) => {
+        const savedDevices = s.savedDevices.map((device) =>
+          device.isOwnedByMe ? { ...device, ownerName: trimmed } : device,
+        );
+        saveDevices(savedDevices);
+        return {
+          user: next,
+          active: s.active?.isOwnedByMe ? { ...s.active, ownerName: trimmed } : s.active,
+          savedDevices,
+        };
+      });
       pushToast('Brugernavn gemt.');
     },
 

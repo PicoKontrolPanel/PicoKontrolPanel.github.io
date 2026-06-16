@@ -159,7 +159,7 @@ export function MenuPages() {
       <Modal title="Enhedsindstillinger" onClose={close}>
         <div className="settings-stack">
           <InfoRow label="Navn" value={active?.deviceName ?? 'Ukendt'} />
-          <InfoRow label="Ejer" value={active?.isOwnedByMe ? 'Denne bruger' : 'Anden bruger'} />
+          <InfoRow label="Ejer" value={ownerLabel(active)} />
           {owner ? (
             <>
               <button className="device-icon-pick settings-icon-pick" type="button" onClick={() => setPickerOpen(true)}>
@@ -286,6 +286,12 @@ function recenterLabel(mode: string): string {
   if (mode === 'middle') return 'midte';
   if (mode === 'top') return 'top';
   return 'ingen';
+}
+
+function ownerLabel(device: { isOwnedByMe: boolean; ownerName?: string } | null): string {
+  if (!device) return 'Ukendt';
+  if (device.isOwnedByMe) return 'Dig';
+  return device.ownerName?.trim() || 'Anden bruger';
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
