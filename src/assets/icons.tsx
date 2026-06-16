@@ -43,6 +43,7 @@ export type GlyphName =
   | 'help'
   | 'debugger'
   | 'edit'
+  | 'picoIde'
   | 'exit'
   | 'plus'
   | 'delete'
@@ -98,6 +99,14 @@ const paths: Record<GlyphName, React.ReactNode> = {
     <>
       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
       <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z" />
+    </>
+  ),
+  picoIde: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M8 9l-3 3 3 3" />
+      <path d="M16 9l3 3-3 3" />
+      <line x1="13" y1="8" x2="11" y2="16" />
     </>
   ),
   exit: (

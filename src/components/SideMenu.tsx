@@ -29,7 +29,7 @@ export function SideMenu({ open }: SideMenuProps) {
           <>
             <MenuButton label="Bruger" icon="user" onClick={() => openMenuPage('user-settings')} />
             <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('application-settings')} />
-            <MenuButton label="Pico IDE" icon="edit" onClick={openPicoIde} />
+            <MenuButton label="Pico IDE" icon="picoIde" onClick={openPicoIde} />
             <TeknologiskolenLink />
             <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('application-help')} />
             <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
@@ -40,7 +40,7 @@ export function SideMenu({ open }: SideMenuProps) {
           <>
             <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('device-settings')} />
             <MenuButton label="Rediger" icon="edit" onClick={() => setEditMode(true)} disabled={!canEdit} />
-            <MenuButton label="Pico IDE" icon="edit" onClick={openPicoIde} />
+            <MenuButton label="Pico IDE" icon="picoIde" onClick={openPicoIde} />
             <TeknologiskolenLink />
             <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('device-help')} />
             <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
