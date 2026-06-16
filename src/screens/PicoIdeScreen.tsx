@@ -132,6 +132,7 @@ export function PicoIdeScreen() {
       await checkRuntimeFilesWith(fsRef.current);
     } catch (err) {
       pushLine('error', err instanceof Error ? err.message : 'USB-forbindelse mislykkedes.');
+      pushLine('info', 'Hvis Picoen er i BOOTSEL, vises den som et drev og kan ikke forbindes som serial. Brug Installer MicroPython i stedet.');
       setMicroPythonOpen(true);
       setConnected(false);
     } finally {
@@ -757,7 +758,7 @@ export function PicoIdeScreen() {
               Hvis Picoen er helt frisk, skal MicroPython først lægges på den. Appen kan kopiere den indbyggede UF2-fil for dig.
             </p>
             <div className="notice">
-              Hold BOOTSEL nede, sæt Picoen i USB, slip BOOTSEL, tryk installer, og vælg drevet RPI-RP2.
+              BOOTSEL bruger ikke serial-forbindelsen. Hold BOOTSEL nede, sæt Picoen i USB, slip BOOTSEL, tryk installer, og vælg drevet RPI-RP2.
             </div>
             <small className="muted-note">
               Indbygget: {BUNDLED_MICROPYTHON.board}, {BUNDLED_MICROPYTHON.version} ({BUNDLED_MICROPYTHON.date}).
