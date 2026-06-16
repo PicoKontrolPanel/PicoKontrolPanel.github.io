@@ -13,9 +13,12 @@ export function SideMenu({ open }: SideMenuProps) {
   const setEditMode = useStore((s) => s.setEditMode);
   const openMenuPage = useStore((s) => s.openMenuPage);
   const disconnect = useStore((s) => s.disconnect);
+  const openPicoIde = useStore((s) => s.openPicoIde);
+  const closePicoIde = useStore((s) => s.closePicoIde);
 
   const onDashboard = screen === 'dashboard';
   const onControlPanel = screen === 'control';
+  const onPicoIde = screen === 'ide';
   const canEdit = onControlPanel && !!active?.canEdit;
 
   return (
@@ -26,8 +29,9 @@ export function SideMenu({ open }: SideMenuProps) {
           <>
             <MenuButton label="Bruger" icon="user" onClick={() => openMenuPage('user-settings')} />
             <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('application-settings')} />
-            <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('application-help')} />
+            <MenuButton label="Pico IDE" icon="edit" onClick={openPicoIde} />
             <TeknologiskolenLink />
+            <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('application-help')} />
             <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
           </>
         )}
@@ -36,9 +40,17 @@ export function SideMenu({ open }: SideMenuProps) {
           <>
             <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('device-settings')} />
             <MenuButton label="Rediger" icon="edit" onClick={() => setEditMode(true)} disabled={!canEdit} />
-            <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('device-help')} />
+            <MenuButton label="Pico IDE" icon="edit" onClick={openPicoIde} />
             <TeknologiskolenLink />
+            <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('device-help')} />
             <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
+          </>
+        )}
+
+        {onPicoIde && (
+          <>
+            <MenuButton label="Hovedmenu" icon="back" onClick={closePicoIde} />
+            <TeknologiskolenLink />
           </>
         )}
 

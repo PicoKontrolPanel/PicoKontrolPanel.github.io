@@ -6,6 +6,7 @@ import { DashboardScreen } from './screens/DashboardScreen';
 import { ConnectionScreen } from './screens/ConnectionScreen';
 import { CreateDeviceScreen } from './screens/CreateDeviceScreen';
 import { ControlPanelScreen } from './screens/ControlPanelScreen';
+import { PicoIdeScreen } from './screens/PicoIdeScreen';
 import { SideMenu } from './components/SideMenu';
 import { Debugger } from './components/Debugger';
 import { MenuPages } from './components/MenuPages';
@@ -43,6 +44,7 @@ function App() {
       {screen === 'connection' && <ConnectionScreen />}
       {screen === 'create' && <CreateDeviceScreen />}
       {screen === 'control' && <ControlPanelScreen />}
+      {screen === 'ide' && <PicoIdeScreen />}
 
       {sideMenuMounted && <SideMenu open={sideMenuOpen} />}
       <MenuPages />
