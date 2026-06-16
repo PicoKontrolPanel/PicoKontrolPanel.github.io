@@ -52,6 +52,9 @@ export function PicoIdeScreen() {
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [installSelection, setInstallSelection] = useState<Record<string, boolean>>({});
+  const [microPythonOpen, setMicroPythonOpen] = useState(false);
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [runningOnPico, setRunningOnPico] = useState(false);
   const [terminalFollow, setTerminalFollow] = useState(true);
@@ -122,14 +125,23 @@ export function PicoIdeScreen() {
       fsRef.current = new PicoFilesystem(repl);
       setConnected(true);
       await repl.interrupt();
+      await probeMicroPython(repl);
       pushLine('success', 'Sendte stop-signal til Pico REPL.');
       await listFilesWith(fsRef.current);
       await checkRuntimeFilesWith(fsRef.current);
     } catch (err) {
       pushLine('error', err instanceof Error ? err.message : 'USB-forbindelse mislykkedes.');
+      setMicroPythonOpen(true);
       setConnected(false);
     } finally {
       setConnecting(false);
+    }
+  }
+
+  async function probeMicroPython(repl: MicroPythonRepl) {
+    const result = await repl.exec("import sys\nprint(sys.implementation.name)\n", 4000);
+    if (result.error || !result.output.toLowerCase().includes('micropython')) {
+      throw new Error('MicroPython blev ikke fundet på Picoen.');
     }
   }
 
@@ -216,16 +228,7 @@ export function PicoIdeScreen() {
     if (!fs) return;
     setBusy(true);
     try {
-      const checks: RuntimeFileCheck[] = [];
-      for (const file of REQUIRED_RUNTIME_FILES) {
-        try {
-          const current = await fs.readText(file.path);
-          const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
-          checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres' });
-        } catch {
-          checks.push({ ...file, status: 'missing', detail: 'Mangler' });
-        }
-      }
+      const checks = await collectRuntimeChecks(fs);
       setRuntimeChecks(checks);
       const missing = checks.filter((check) => check.status === 'missing').length;
       const outdated = checks.filter((check) => check.status === 'outdated').length;
@@ -239,6 +242,21 @@ export function PicoIdeScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function collectRuntimeChecks(fs: PicoFilesystem | null): Promise<RuntimeFileCheck[]> {
+    if (!fs) return [];
+    const checks: RuntimeFileCheck[] = [];
+    for (const file of REQUIRED_RUNTIME_FILES) {
+      try {
+        const current = await fs.readText(file.path);
+        const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
+        checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres' });
+      } catch {
+        checks.push({ ...file, status: 'missing', detail: 'Mangler' });
+      }
+    }
+    return checks;
   }
 
   async function readFile(nextPath = path) {
@@ -419,14 +437,26 @@ export function PicoIdeScreen() {
   }
 
   async function installRuntimeFiles() {
+    if (!connected || bleMode) return;
+    const checks = runtimeChecks.length > 0 ? runtimeChecks : await collectRuntimeChecks(fsRef.current);
+    setRuntimeChecks(checks);
+    const nextSelection: Record<string, boolean> = {};
+    checks.forEach((check) => {
+      nextSelection[check.path] = check.status !== 'ok';
+    });
+    setInstallSelection(nextSelection);
+    setInstallOpen(true);
+  }
+
+  async function performInstallRuntimeFiles() {
     await withFs(async (fs) => {
       const checks =
         runtimeChecks.length > 0
           ? runtimeChecks
           : REQUIRED_RUNTIME_FILES.map((file) => ({ ...file, status: 'unknown', detail: 'Ikke tjekket' }) as RuntimeFileCheck);
-      const targets = checks.filter((check) => check.status !== 'ok');
+      const targets = checks.filter((check) => installSelection[check.path]);
       if (targets.length === 0) {
-        pushLine('success', 'Alle runtime filer er allerede installeret.');
+        pushLine('info', 'Ingen filer valgt til installation.');
         return;
       }
 
@@ -437,6 +467,7 @@ export function PicoIdeScreen() {
       }
       await listFiles();
       await checkRuntimeFiles();
+      setInstallOpen(false);
     });
   }
 
@@ -518,14 +549,14 @@ export function PicoIdeScreen() {
           <div className="ide-panel-head">
             <h2>Filer</h2>
             <div className="ide-mini-actions">
-              <button className="btn btn-outline" type="button" onClick={newFile}>
-                Ny
+              <button className="btn btn-outline ide-tool-btn" type="button" onClick={newFile} aria-label="Ny fil" title="Ny fil">
+                <Glyph name="plus" size={20} />
               </button>
-              <button className="btn btn-outline" type="button" onClick={() => uploadInputRef.current?.click()}>
-                Importer
+              <button className="btn btn-outline ide-tool-btn" type="button" onClick={() => uploadInputRef.current?.click()} aria-label="Importer fil" title="Importer fil">
+                <Glyph name="upload" size={20} />
               </button>
-              <button className="btn btn-outline" type="button" onClick={listFiles} disabled={(!connected && !bleMode) || busy}>
-                Opdater
+              <button className="btn btn-outline ide-tool-btn" type="button" onClick={listFiles} disabled={(!connected && !bleMode) || busy} aria-label="Opdater filer" title="Opdater filer">
+                <Glyph name="refresh" size={20} />
               </button>
             </div>
           </div>
@@ -563,6 +594,9 @@ export function PicoIdeScreen() {
               <button className="btn btn-primary" type="button" onClick={connectUsb} disabled={!status.supported || connected || connecting}>
                 <Glyph name="power" size={22} />
                 {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
+              </button>
+              <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={() => setMicroPythonOpen(true)}>
+                MicroPython
               </button>
               <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={disconnectUsb} disabled={!connected}>
                 Afbryd
@@ -672,6 +706,49 @@ export function PicoIdeScreen() {
             <button className="btn btn-outline" type="button" onClick={downloadFile}>
               Download til computer
             </button>
+          </div>
+        </Modal>
+      )}
+
+      {installOpen && (
+        <Modal title="Installer filer" onClose={() => setInstallOpen(false)}>
+          <div className="ide-install-list">
+            {runtimeChecks.map((file) => (
+              <label className="ide-install-row" key={file.path}>
+                <input
+                  type="checkbox"
+                  checked={!!installSelection[file.path]}
+                  onChange={(e) => setInstallSelection((current) => ({ ...current, [file.path]: e.target.checked }))}
+                />
+                <span>
+                  <strong>{file.label}</strong>
+                  <small>{file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {file.detail}</small>
+                  <small>{file.description}</small>
+                </span>
+              </label>
+            ))}
+            <button className="btn btn-primary" type="button" onClick={performInstallRuntimeFiles} disabled={busy}>
+              Installer valgte
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {microPythonOpen && (
+        <Modal title="Installer MicroPython" onClose={() => setMicroPythonOpen(false)}>
+          <div className="settings-stack">
+            <p className="confirm-message">
+              Hvis Picoen er helt frisk, skal MicroPython først lægges på den med BOOTSEL og en UF2-fil.
+            </p>
+            <div className="notice">
+              Hold BOOTSEL nede, sæt Picoen i USB, slip BOOTSEL, og kopier den rigtige MicroPython UF2-fil over på drevet.
+            </div>
+            <a className="btn btn-primary btn-block" href="https://micropython.org/download/RPI_PICO_W/" target="_blank" rel="noreferrer">
+              Hent Pico W MicroPython
+            </a>
+            <a className="btn btn-outline btn-block" href="https://www.raspberrypi.com/documentation/microcontrollers/micropython.html" target="_blank" rel="noreferrer">
+              Se vejledning
+            </a>
           </div>
         </Modal>
       )}

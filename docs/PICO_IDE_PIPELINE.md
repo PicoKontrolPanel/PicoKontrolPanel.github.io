@@ -50,7 +50,7 @@
    - Installer writes through a temporary file, verifies it, keeps a `.bak`, then promotes the file.
 6. In progress: add code execution controls.
    - `Kør` executes the current editor contents through raw REPL.
-   - `Reset` sends a MicroPython soft reset.
+   - `Stop` sends keyboard interrupt to the Pico for running code.
 7. Todo: replace the plain textarea with a Python-aware editor.
    - Preferred path: CodeMirror 6 with Python syntax highlighting.
    - Keep the UI compact; the editor should own the main right-side work area.
@@ -79,6 +79,10 @@
 7. The editor needs a real Stop command that sends keyboard interrupt to the Pico.
 8. MicroPython install support should start as guided BOOTSEL/UF2 installation, then grow into richer browser-assisted setup where browser APIs allow it.
 9. To compete with Thonny for classroom use, the app needs: board detection, firmware UF2 guidance, robust file sync, streaming terminal, stop/restart, traceback display, syntax highlighting, import/export, safe runtime install, and recovery mode.
+10. File panel actions should use compact icons on narrow panels.
+11. Installer should show a choice modal grouped by installable type, not silently install every bundled file.
+12. Current installable files are sourced from root-level `.py` files in `firmware/`; these are copied to the Pico filesystem root so MicroPython imports work simply for children.
+13. Fresh Pico workflow still needs guided board selection and UF2 download/copy instructions before Web Serial can work.
 
 ## Platform posture
 
