@@ -591,15 +591,17 @@ export function PicoIdeScreen() {
           </div>
           {!bleMode && (
             <div className="ide-actions">
-              <button className="btn btn-primary" type="button" onClick={connectUsb} disabled={!status.supported || connected || connecting}>
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={connected ? disconnectUsb : connectUsb}
+                disabled={!status.supported || connecting}
+              >
                 <Glyph name="power" size={22} />
-                {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
+                {connecting ? 'Forbinder...' : connected ? 'Afbryd USB' : 'Forbind USB'}
               </button>
               <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={() => setMicroPythonOpen(true)}>
                 MicroPython
-              </button>
-              <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={disconnectUsb} disabled={!connected}>
-                Afbryd
               </button>
             </div>
           )}
@@ -698,7 +700,7 @@ export function PicoIdeScreen() {
         <Modal title="Gem fil" onClose={() => setSaveOpen(false)}>
           <div className="ide-save-options">
             <button className="btn btn-primary" type="button" onClick={saveLocalFile}>
-              Gem lokalt
+              Gem i browser
             </button>
               <button className="btn btn-primary" type="button" onClick={savePicoFile} disabled={(!connected && !bleMode) || busy}>
                 Gem på Pico
