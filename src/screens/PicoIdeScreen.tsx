@@ -4,6 +4,7 @@ import { TopBar } from '../components/TopBar';
 import { Modal } from '../components/Modal';
 import { Glyph } from '../assets/icons';
 import { MicroPythonRepl } from '../serial/micropythonRepl';
+import { BUNDLED_MICROPYTHON, installBundledMicroPythonUf2, supportsBundledMicroPythonInstall } from '../serial/microPythonUf2';
 import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
 import { REQUIRED_RUNTIME_FILES, type RuntimeFileCheck } from '../serial/runtimeFiles';
 import { developerModeStatus, SerialTransport, type SerialLogLevel } from '../serial/serialTransport';
@@ -150,6 +151,19 @@ export function PicoIdeScreen() {
     replRef.current = null;
     fsRef.current = null;
     setConnected(false);
+  }
+
+  async function installMicroPython() {
+    setBusy(true);
+    try {
+      const driveName = await installBundledMicroPythonUf2();
+      pushLine('success', `Kopierede ${BUNDLED_MICROPYTHON.version} til ${driveName}. Picoen genstarter nu.`);
+      setMicroPythonOpen(false);
+    } catch (err) {
+      pushLine('error', err instanceof Error ? err.message : 'MicroPython installation mislykkedes.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function withFs(action: (fs: PicoFilesystem) => Promise<void>) {
@@ -600,8 +614,8 @@ export function PicoIdeScreen() {
                 <Glyph name="power" size={22} />
                 {connecting ? 'Forbinder...' : connected ? 'Afbryd USB' : 'Forbind USB'}
               </button>
-              <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={() => setMicroPythonOpen(true)}>
-                MicroPython
+              <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={!connected || bleMode || busy}>
+                Installer
               </button>
             </div>
           )}
@@ -610,8 +624,8 @@ export function PicoIdeScreen() {
               <button className="btn btn-outline" type="button" onClick={checkRuntimeFiles} disabled={(!connected && !bleMode) || busy}>
                 Tjek filer
               </button>
-              <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={!connected || bleMode || busy}>
-                Installer
+              <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={() => setMicroPythonOpen(true)}>
+                MicroPython
               </button>
             </div>
             <div className="ide-runtime-list">
@@ -740,14 +754,22 @@ export function PicoIdeScreen() {
         <Modal title="Installer MicroPython" onClose={() => setMicroPythonOpen(false)}>
           <div className="settings-stack">
             <p className="confirm-message">
-              Hvis Picoen er helt frisk, skal MicroPython først lægges på den med BOOTSEL og en UF2-fil.
+              Hvis Picoen er helt frisk, skal MicroPython først lægges på den. Appen kan kopiere den indbyggede UF2-fil for dig.
             </p>
             <div className="notice">
-              Hold BOOTSEL nede, sæt Picoen i USB, slip BOOTSEL, og kopier den rigtige MicroPython UF2-fil over på drevet.
+              Hold BOOTSEL nede, sæt Picoen i USB, slip BOOTSEL, tryk installer, og vælg drevet RPI-RP2.
             </div>
-            <a className="btn btn-primary btn-block" href="https://micropython.org/download/RPI_PICO_W/" target="_blank" rel="noreferrer">
-              Hent Pico W MicroPython
-            </a>
+            <small className="muted-note">
+              Indbygget: {BUNDLED_MICROPYTHON.board}, {BUNDLED_MICROPYTHON.version} ({BUNDLED_MICROPYTHON.date}).
+            </small>
+            <button className="btn btn-primary btn-block" type="button" onClick={installMicroPython} disabled={busy || !supportsBundledMicroPythonInstall()}>
+              Installer på Pico
+            </button>
+            {!supportsBundledMicroPythonInstall() && (
+              <div className="notice warning">
+                Automatisk installation kræver Chrome eller Edge på en computer.
+              </div>
+            )}
             <a className="btn btn-outline btn-block" href="https://www.raspberrypi.com/documentation/microcontrollers/micropython.html" target="_blank" rel="noreferrer">
               Se vejledning
             </a>
