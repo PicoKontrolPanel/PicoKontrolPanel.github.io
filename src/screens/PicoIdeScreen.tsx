@@ -69,6 +69,8 @@ export function PicoIdeScreen() {
   const status = developerModeStatus();
   const bleMode = picoIdeOrigin === 'control' && !!active && isBleConnected();
   const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
+  const editorLineCount = Math.max(1, editorText.split('\n').length);
+  const editorByteSize = new Blob([editorText]).size;
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
@@ -221,9 +223,9 @@ export function PicoIdeScreen() {
           try {
             const current = await bleReadText(file.path);
             const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
-            checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres via USB' });
+            checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Matcher appens version' : 'Matcher ikke appens version - opdater via USB' });
           } catch {
-            checks.push({ ...file, status: 'missing', detail: 'Mangler' });
+            checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
           }
         }
         setRuntimeChecks(checks);
@@ -267,9 +269,9 @@ export function PicoIdeScreen() {
       try {
         const current = await fs.readText(file.path);
         const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
-        checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres' });
+        checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Matcher appens version' : 'Matcher ikke appens version' });
       } catch {
-        checks.push({ ...file, status: 'missing', detail: 'Mangler' });
+        checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
       }
     }
     return checks;
@@ -631,9 +633,7 @@ export function PicoIdeScreen() {
               </button>
             </div>
             <div className="ide-runtime-list">
-              {runtimeChecks.length === 0 ? (
-                <span>Runtime filer er ikke tjekket endnu.</span>
-              ) : (
+              {runtimeChecks.length > 0 && (
                 runtimeChecks.map((check) => (
                   <span className={`runtime-${check.status}`} key={check.path}>
                     {check.label}: {check.detail}
@@ -646,7 +646,10 @@ export function PicoIdeScreen() {
 
         <section className="ide-panel ide-editor-panel">
           <div className="ide-panel-head">
-            <h2>{displayPicoPath(path)}</h2>
+            <h2>
+              {displayPicoPath(path)}
+              <small>{editorByteSize} bytes</small>
+            </h2>
             <div className="ide-mini-actions">
               <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={busy}>
                 Kør
@@ -663,6 +666,11 @@ export function PicoIdeScreen() {
             </div>
           </div>
           <div className="ide-editor-wrap">
+            <div className="ide-line-numbers" aria-hidden="true" style={{ transform: `translateY(${-editorScroll.top}px)` }}>
+              {Array.from({ length: editorLineCount }, (_, index) => (
+                <span key={index}>{index + 1}</span>
+              ))}
+            </div>
             <pre
               className="ide-highlight"
               aria-hidden="true"
@@ -739,7 +747,10 @@ export function PicoIdeScreen() {
                   onChange={(e) => setInstallSelection((current) => ({ ...current, [file.path]: e.target.checked }))}
                 />
                 <span>
-                  <strong>{file.label}</strong>
+                  <strong>
+                    {file.label}
+                    <em className={`ide-install-status status-${file.status}`}>{runtimeStatusLabel(file.status)}</em>
+                  </strong>
                   <small>{file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {file.detail}</small>
                   <small>{file.description}</small>
                 </span>
@@ -923,6 +934,13 @@ function ensureDefaultDraft(drafts: IdeDraft[]): IdeDraft[] {
 function upsertDraft(drafts: IdeDraft[], path: string, content: string, uploaded: boolean): IdeDraft[] {
   const next = drafts.filter((draft) => draft.path !== path);
   return [{ path, content, uploaded, updatedAt: Date.now() }, ...next].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function runtimeStatusLabel(status: RuntimeFileCheck['status']): string {
+  if (status === 'ok') return 'Nyeste';
+  if (status === 'outdated') return 'Opdater';
+  if (status === 'missing') return 'Mangler';
+  return 'Ikke tjekket';
 }
 
 function buildFileRows(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeFileRow[] {

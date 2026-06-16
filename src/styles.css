@@ -1175,6 +1175,15 @@ button:disabled {
   margin-bottom: 0;
 }
 
+.ide-panel-head h2 small {
+  display: inline-block;
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .ide-panel-head .btn,
 .ide-mini-actions .btn {
   min-height: 38px;
@@ -1316,7 +1325,7 @@ button:disabled {
   resize: none;
   border: 0;
   border-radius: 14px;
-  padding: 12px;
+  padding: 12px 12px 12px 56px;
   color: transparent;
   caret-color: var(--text);
   background: transparent;
@@ -1341,11 +1350,30 @@ button:disabled {
   overflow: hidden;
 }
 
+.ide-line-numbers {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 0;
+  width: 44px;
+  color: var(--muted);
+  font: 0.9rem/1.45 'Consolas', 'SFMono-Regular', monospace;
+  text-align: right;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ide-line-numbers span {
+  display: block;
+  padding-right: 10px;
+  height: 1.305rem;
+}
+
 .ide-highlight {
   position: absolute;
   inset: 0;
   margin: 0;
-  padding: 12px;
+  padding: 12px 12px 12px 56px;
   color: var(--text);
   font: 0.9rem/1.45 'Consolas', 'SFMono-Regular', monospace;
   white-space: pre-wrap;
@@ -1465,7 +1493,34 @@ button:disabled {
 }
 
 .ide-install-row strong {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   color: var(--red);
+}
+
+.ide-install-status {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: var(--grey);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.ide-install-status.status-ok {
+  background: rgba(47, 143, 73, 0.14);
+  color: #2f8f49;
+}
+
+.ide-install-status.status-outdated,
+.ide-install-status.status-missing,
+.ide-install-status.status-unknown {
+  background: rgba(176, 114, 8, 0.16);
+  color: #b07208;
 }
 
 .ide-install-row small {

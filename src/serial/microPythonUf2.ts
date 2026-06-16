@@ -43,7 +43,7 @@ export async function installBundledMicroPythonUf2(): Promise<string> {
   const uf2 = await response.blob();
   const directory = await picker({ id: 'pico-bootloader', mode: 'readwrite' });
   const driveName = directory.name.toUpperCase();
-  if (driveName !== 'RPI-RP2' && driveName !== 'RP2350') {
+  if (!driveName.includes('RPI-RP2') && !driveName.includes('RP2350')) {
     throw new Error('Vælg Pico-drevet der hedder RPI-RP2 eller RP2350.');
   }
 
