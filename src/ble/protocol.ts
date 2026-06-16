@@ -35,6 +35,8 @@ export interface BleFileEntry {
   size?: number;
 }
 
+export type FileWriteProgress = (value: number, label: string) => void;
+
 interface Waiter {
   match: (line: string) => boolean;
   resolve: (line: string) => void;
@@ -406,8 +408,10 @@ export class PicoProtocol {
     return new TextDecoder().decode(hexToBytes(hex));
   }
 
-  async writeText(path: string, content: string): Promise<void> {
+  async writeText(path: string, content: string, onProgress?: FileWriteProgress): Promise<void> {
+    onProgress?.(5, 'Klargør BLE-overførsel...');
     await this.exchange(`fs_write_begin,${protocolField(path)}`, (l) => l === 'ACK:fs_write_begin', 'fs_write_begin', 2);
+    onProgress?.(18, 'Pico er klar til filen...');
     const bytes = new TextEncoder().encode(content);
     const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
     const lines: string[] = [];
@@ -416,9 +420,11 @@ export class PicoProtocol {
     }
     lines.push('fs_write_end');
     const done = this.waitFor((l) => l === 'ACK:fs_write_done' || l.startsWith('ERR'), HANDSHAKE_TIMEOUT * 5, 'fs_write_done');
+    onProgress?.(35, `Sender ${bytes.length} bytes via Bluetooth...`);
     this.stream.sendReliable(lines);
     const result = await done;
     if (result.startsWith('ERR')) throw new Error(result);
+    onProgress?.(100, 'Gemt på Pico');
   }
 
   async deleteFile(path: string): Promise<void> {

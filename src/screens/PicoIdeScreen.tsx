@@ -16,6 +16,11 @@ interface TerminalLine {
   text: string;
 }
 
+interface TaskProgress {
+  value: number;
+  label: string;
+}
+
 interface IdeFileRow {
   name: string;
   path: string;
@@ -53,6 +58,7 @@ export function PicoIdeScreen() {
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
+  const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [installSelection, setInstallSelection] = useState<Record<string, boolean>>({});
   const [microPythonOpen, setMicroPythonOpen] = useState(false);
@@ -65,6 +71,7 @@ export function PicoIdeScreen() {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const runningRef = useRef(false);
+  const terminalQuietRef = useRef(false);
 
   const status = developerModeStatus();
   const bleMode = picoIdeOrigin === 'control' && !!active && isBleConnected();
@@ -75,6 +82,7 @@ export function PicoIdeScreen() {
   const transport = useMemo(() => {
     const serial = new SerialTransport({
       onLine: (line) => {
+        if (terminalQuietRef.current) return;
         if (runningRef.current && line.trim() && !line.includes('>>>') && !line.includes('raw REPL')) {
           pushLine('info', line);
         }
@@ -93,6 +101,34 @@ export function PicoIdeScreen() {
 
   function pushLine(level: SerialLogLevel, text: string) {
     setLines((current) => [...current.slice(-140), { level, text }]);
+  }
+
+  function finishTaskProgress(label: string) {
+    setTaskProgress({ value: 100, label });
+    window.setTimeout(() => setTaskProgress(null), 900);
+  }
+
+  function renderTaskProgress() {
+    if (!taskProgress) return null;
+    return (
+      <div className="ide-task-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(taskProgress.value)}>
+        <div>
+          <span>{taskProgress.label}</span>
+          <strong>{Math.round(taskProgress.value)}%</strong>
+        </div>
+        <i style={{ width: `${Math.max(2, Math.min(100, taskProgress.value))}%` }} />
+      </div>
+    );
+  }
+
+  async function withQuietTerminal<T>(action: () => Promise<T>): Promise<T> {
+    const wasQuiet = terminalQuietRef.current;
+    terminalQuietRef.current = true;
+    try {
+      return await action();
+    } finally {
+      terminalQuietRef.current = wasQuiet;
+    }
   }
 
   useEffect(() => {
@@ -159,11 +195,14 @@ export function PicoIdeScreen() {
 
   async function installMicroPython() {
     setBusy(true);
+    setTaskProgress({ value: 10, label: 'Klargør MicroPython...' });
     try {
-      const driveName = await installBundledMicroPythonUf2();
+      const driveName = await installBundledMicroPythonUf2((value, label) => setTaskProgress({ value, label }));
+      finishTaskProgress('MicroPython kopieret');
       pushLine('success', `Kopierede ${BUNDLED_MICROPYTHON.version} til ${driveName}. Picoen genstarter nu.`);
       setMicroPythonOpen(false);
     } catch (err) {
+      setTaskProgress(null);
       pushLine('error', err instanceof Error ? err.message : 'MicroPython installation mislykkedes.');
     } finally {
       setBusy(false);
@@ -174,11 +213,14 @@ export function PicoIdeScreen() {
     const fs = fsRef.current;
     if (!fs) return;
     setBusy(true);
+    terminalQuietRef.current = true;
     try {
       await action(fs);
     } catch (err) {
+      setTaskProgress(null);
       pushLine('error', err instanceof Error ? err.message : 'USB filhandling fejlede.');
     } finally {
+      terminalQuietRef.current = false;
       setBusy(false);
     }
   }
@@ -204,7 +246,7 @@ export function PicoIdeScreen() {
     if (!fs) return;
     setBusy(true);
     try {
-      const next = await fs.list('/');
+      const next = await withQuietTerminal(() => fs.list('/'));
       setFiles(next);
       pushLine('success', `Læste ${next.length} filer fra Pico.`);
     } catch (err) {
@@ -246,7 +288,7 @@ export function PicoIdeScreen() {
     if (!fs) return;
     setBusy(true);
     try {
-      const checks = await collectRuntimeChecks(fs);
+      const checks = await withQuietTerminal(() => collectRuntimeChecks(fs));
       setRuntimeChecks(checks);
       const missing = checks.filter((check) => check.status === 'missing').length;
       const outdated = checks.filter((check) => check.status === 'outdated').length;
@@ -314,15 +356,18 @@ export function PicoIdeScreen() {
   }
 
   async function savePicoFile() {
+    setTaskProgress({ value: 0, label: 'Starter gemning...' });
     if (bleMode) {
       setBusy(true);
       try {
-        await bleWriteText(path, editorText);
+        await bleWriteText(path, editorText, (value, label) => setTaskProgress({ value, label }));
         updateLocalDraft(path, editorText, true);
         setSaveOpen(false);
+        finishTaskProgress('Gemt på Pico via Bluetooth');
         pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
         await listFiles();
       } catch (err) {
+        setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE gem fejlede.');
       } finally {
         setBusy(false);
@@ -330,10 +375,14 @@ export function PicoIdeScreen() {
       return;
     }
 
-    if (!fsRef.current) return;
+    if (!fsRef.current) {
+      setTaskProgress(null);
+      return;
+    }
     await withFs(async (fs) => {
-      await fs.writeText(path, editorText);
+      await fs.writeText(path, editorText, (value, label) => setTaskProgress({ value, label }));
       updateLocalDraft(path, editorText, true);
+      finishTaskProgress('Gemt på Pico via USB');
       pushLine('success', `Gemte ${path}.`);
       await listFiles();
       await checkRuntimeFiles();
@@ -456,7 +505,7 @@ export function PicoIdeScreen() {
 
   async function installRuntimeFiles() {
     if (!connected || bleMode) return;
-    const checks = runtimeChecks.length > 0 ? runtimeChecks : await collectRuntimeChecks(fsRef.current);
+    const checks = runtimeChecks.length > 0 ? runtimeChecks : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
     setRuntimeChecks(checks);
     const nextSelection: Record<string, boolean> = {};
     checks.forEach((check) => {
@@ -478,11 +527,20 @@ export function PicoIdeScreen() {
         return;
       }
 
-      for (const file of targets) {
+      setTaskProgress({ value: 0, label: 'Starter installation...' });
+      for (const [index, file] of targets.entries()) {
         pushLine('info', `Installerer ${file.label}...`);
-        await fs.replaceTextSafely(file.path, file.content);
+        const baseProgress = (index / targets.length) * 100;
+        const fileShare = 100 / targets.length;
+        await fs.replaceTextSafely(file.path, file.content, (value, label) => {
+          setTaskProgress({
+            value: Math.min(99, baseProgress + (value / 100) * fileShare),
+            label: `${file.label}: ${label}`,
+          });
+        });
         pushLine('success', `Installerede ${file.label}.`);
       }
+      finishTaskProgress('Installation færdig');
       await listFiles();
       await checkRuntimeFiles();
       setInstallOpen(false);
@@ -498,6 +556,7 @@ export function PicoIdeScreen() {
 
     const repl = replRef.current;
     if (!repl) {
+      pushLine('info', 'Kører i offline playground. For rigtig MicroPython: forbind en Pico med USB.');
       runLocalPythonPlayground(editorText, pushLine);
       return;
     }
@@ -665,6 +724,7 @@ export function PicoIdeScreen() {
               </button>
             </div>
           </div>
+          {renderTaskProgress()}
           <div className="ide-editor-wrap">
             <div className="ide-line-numbers" aria-hidden="true" style={{ transform: `translateY(${-editorScroll.top}px)` }}>
               {Array.from({ length: editorLineCount }, (_, index) => (
@@ -729,6 +789,7 @@ export function PicoIdeScreen() {
               <button className="btn btn-primary" type="button" onClick={savePicoFile} disabled={(!connected && !bleMode) || busy}>
                 Gem på Pico
               </button>
+            {renderTaskProgress()}
             <button className="btn btn-outline" type="button" onClick={downloadFile}>
               Download til computer
             </button>
@@ -756,6 +817,7 @@ export function PicoIdeScreen() {
                 </span>
               </label>
             ))}
+            {renderTaskProgress()}
             <button className="btn btn-primary" type="button" onClick={performInstallRuntimeFiles} disabled={busy}>
               Installer valgte
             </button>
@@ -775,6 +837,7 @@ export function PicoIdeScreen() {
             <small className="muted-note">
               Indbygget: {BUNDLED_MICROPYTHON.board}, {BUNDLED_MICROPYTHON.version} ({BUNDLED_MICROPYTHON.date}).
             </small>
+            {renderTaskProgress()}
             {canInstallMicroPythonDirectly ? (
               <button className="btn btn-primary btn-block" type="button" onClick={installMicroPython} disabled={busy}>
                 Installer på Pico
@@ -984,10 +1047,11 @@ function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, tex
   const env = new Map<string, string | number | boolean>();
   const output: string[] = [];
   const errors: string[] = [];
+  const lines = code.split(/\r?\n/).map((text, index) => ({ text, index }));
 
-  code.split(/\r?\n/).forEach((rawLine, index) => {
+  const executeSimpleLine = (rawLine: string, lineNumber: number): boolean => {
     const line = rawLine.trim();
-    if (!line || line.startsWith('#')) return;
+    if (!line || line.startsWith('#')) return true;
 
     const assignment = line.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/);
     if (assignment) {
@@ -995,9 +1059,9 @@ function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, tex
       if (value.ok) {
         env.set(assignment[1], value.value);
       } else {
-        errors.push(`Linje ${index + 1}: ${value.error}`);
+        errors.push(`Linje ${lineNumber}: ${value.error}`);
       }
-      return;
+      return true;
     }
 
     const printCall = line.match(/^print\((.*)\)$/);
@@ -1006,15 +1070,62 @@ function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, tex
       const values = parts.map((part) => evalBeginnerExpression(part, env));
       const failed = values.find((value) => !value.ok);
       if (failed && !failed.ok) {
-        errors.push(`Linje ${index + 1}: ${failed.error}`);
-        return;
+        errors.push(`Linje ${lineNumber}: ${failed.error}`);
+        return true;
       }
       output.push(values.map((value) => (value.ok ? String(value.value) : '')).join(' '));
-      return;
+      return true;
     }
 
-    errors.push(`Linje ${index + 1}: Offline playground understøtter print(...) og simple variabler.`);
-  });
+    errors.push(`Linje ${lineNumber}: Offline playground understøtter print(...), simple variabler og simple while-løkker.`);
+    return false;
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i].text;
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+
+    const whileMatch = line.match(/^while\s+(.+)\s*:\s*$/);
+    if (!whileMatch) {
+      executeSimpleLine(raw, lines[i].index + 1);
+      continue;
+    }
+
+    const block: typeof lines = [];
+    let j = i + 1;
+    while (j < lines.length && (/^\s+/.test(lines[j].text) || !lines[j].text.trim())) {
+      if (lines[j].text.trim()) block.push(lines[j]);
+      j += 1;
+    }
+
+    if (block.length === 0) {
+      errors.push(`Linje ${lines[i].index + 1}: while-løkken mangler indrykket kode.`);
+      i = j - 1;
+      continue;
+    }
+
+    let guard = 0;
+    while (true) {
+      const condition = evalBeginnerCondition(whileMatch[1], env);
+      if (!condition.ok) {
+        errors.push(`Linje ${lines[i].index + 1}: ${condition.error}`);
+        break;
+      }
+      if (!condition.value) break;
+      for (const blockLine of block) {
+        executeSimpleLine(blockLine.text, blockLine.index + 1);
+        if (errors.length) break;
+      }
+      if (errors.length) break;
+      guard += 1;
+      if (guard > 1000) {
+        errors.push(`Linje ${lines[i].index + 1}: while-løkken stoppede efter 1000 gentagelser.`);
+        break;
+      }
+    }
+    i = j - 1;
+  }
 
   if (output.length) log('info', output.join('\n'));
   if (errors.length) log('error', errors.join('\n'));
@@ -1022,6 +1133,39 @@ function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, tex
 }
 
 type EvalResult = { ok: true; value: string | number | boolean } | { ok: false; error: string };
+type ConditionResult = { ok: true; value: boolean } | { ok: false; error: string };
+
+function evalBeginnerCondition(raw: string, env: Map<string, string | number | boolean>): ConditionResult {
+  const expr = raw.trim();
+  const comparison = expr.match(/^(.+?)\s*(<=|>=|==|!=|<|>)\s*(.+)$/);
+  if (comparison) {
+    const left = evalBeginnerExpression(comparison[1], env);
+    const right = evalBeginnerExpression(comparison[3], env);
+    if (!left.ok) return { ok: false, error: left.error };
+    if (!right.ok) return { ok: false, error: right.error };
+
+    switch (comparison[2]) {
+      case '<':
+        return { ok: true, value: left.value < right.value };
+      case '<=':
+        return { ok: true, value: left.value <= right.value };
+      case '>':
+        return { ok: true, value: left.value > right.value };
+      case '>=':
+        return { ok: true, value: left.value >= right.value };
+      case '==':
+        return { ok: true, value: left.value === right.value };
+      case '!=':
+        return { ok: true, value: left.value !== right.value };
+      default:
+        return { ok: false, error: 'Betingelsen kunne ikke læses.' };
+    }
+  }
+
+  const value = evalBeginnerExpression(expr, env);
+  if (!value.ok) return { ok: false, error: value.error };
+  return { ok: true, value: Boolean(value.value) };
+}
 
 function evalBeginnerExpression(raw: string, env: Map<string, string | number | boolean>): EvalResult {
   const expr = raw.trim();

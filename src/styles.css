@@ -1192,6 +1192,34 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.ide-task-progress {
+  display: grid;
+  gap: 6px;
+  margin: -2px 0 8px;
+  color: var(--muted);
+  font-weight: 900;
+}
+
+.ide-task-progress div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.78rem;
+}
+
+.ide-task-progress strong {
+  color: var(--red);
+}
+
+.ide-task-progress i {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--red), #2f8f49);
+  box-shadow: 0 0 0 1px rgba(40, 40, 40, 0.08);
+  transition: width 160ms ease;
+}
+
 .ide-mini-actions {
   display: flex;
   flex-wrap: wrap;

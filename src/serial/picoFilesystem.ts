@@ -9,6 +9,8 @@ export interface PicoFileEntry {
 
 const CHUNK_SIZE = 512;
 
+export type FileWriteProgress = (value: number, label: string) => void;
+
 function pyString(value: string): string {
   return JSON.stringify(value);
 }
@@ -76,9 +78,14 @@ with open(${pyString(path)}, 'rb') as f:
     return new TextDecoder().decode(hexToBytes(hex));
   }
 
-  async writeText(path: string, content: string): Promise<void> {
+  async writeText(path: string, content: string, onProgress?: FileWriteProgress): Promise<void> {
     const bytes = new TextEncoder().encode(content);
+    onProgress?.(5, 'Klargør fil...');
     await this.repl.exec(`open(${pyString(path)}, 'wb').close()`);
+    if (bytes.length === 0) {
+      onProgress?.(100, 'Gemt på Pico');
+      return;
+    }
     for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
       const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
       const code = `
@@ -87,22 +94,28 @@ with open(${pyString(path)}, 'ab') as f:
 `;
       const result = await this.repl.exec(code, 10000);
       if (result.error) throw new Error(result.error);
+      const written = Math.min(offset + chunk.length, bytes.length);
+      onProgress?.(10 + Math.round((written / bytes.length) * 85), `Gemmer ${written}/${bytes.length} bytes...`);
     }
+    onProgress?.(100, 'Gemt på Pico');
   }
 
-  async replaceTextSafely(path: string, content: string): Promise<void> {
+  async replaceTextSafely(path: string, content: string, onProgress?: FileWriteProgress): Promise<void> {
     const tmpPath = `${path}.tmp`;
     const backupPath = `${path}.bak`;
-    await this.writeText(tmpPath, content);
+    await this.writeText(tmpPath, content, (value, label) => onProgress?.(Math.min(70, value * 0.7), label));
+    onProgress?.(78, 'Verificerer fil...');
     const written = await this.readText(tmpPath);
     if (written !== content) {
       await this.delete(tmpPath).catch(() => {});
       throw new Error(`Verificering fejlede for ${path}.`);
     }
 
+    onProgress?.(88, 'Udskifter fil...');
     await this.delete(backupPath).catch(() => {});
     await this.rename(path, backupPath).catch(() => {});
     await this.rename(tmpPath, path);
+    onProgress?.(100, 'Installeret på Pico');
   }
 
   async delete(path: string): Promise<void> {

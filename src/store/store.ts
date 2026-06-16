@@ -119,7 +119,7 @@ interface AppState {
   isBleConnected: () => boolean;
   bleListFiles: () => Promise<BleFileEntry[]>;
   bleReadText: (path: string) => Promise<string>;
-  bleWriteText: (path: string, content: string) => Promise<void>;
+  bleWriteText: (path: string, content: string, onProgress?: (value: number, label: string) => void) => Promise<void>;
   bleDeleteFile: (path: string) => Promise<void>;
   bleRestart: () => Promise<void>;
   reconnectLostDevice: () => Promise<void>;
@@ -509,9 +509,9 @@ export const useStore = create<AppState>((set, get) => {
       if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
       return protocol.readText(path);
     },
-    bleWriteText: async (path, content) => {
+    bleWriteText: async (path, content, onProgress) => {
       if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
-      await protocol.writeText(path, content);
+      await protocol.writeText(path, content, onProgress);
     },
     bleDeleteFile: async (path) => {
       if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
