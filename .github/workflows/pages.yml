@@ -1,13 +1,9 @@
 name: Deploy GitHub Pages
 
 "on":
-  # Auto-deploy on push to main is intentionally disabled so in-progress
-  # work on main is not published to the public site. Re-enable by
-  # uncommenting the push trigger below. Until then, deploy manually from
-  # the Actions tab ("Run workflow") via workflow_dispatch.
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
