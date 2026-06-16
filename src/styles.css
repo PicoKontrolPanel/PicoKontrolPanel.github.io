@@ -1273,9 +1273,29 @@ button:disabled {
 }
 
 .ide-file-list small {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-weight: 800;
   color: inherit;
   opacity: 0.75;
+}
+
+.ide-sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.9;
+}
+
+.sync-local {
+  background: #b07208;
+}
+
+.sync-pico,
+.sync-both {
+  background: #2f8f49;
 }
 
 .ide-editor {

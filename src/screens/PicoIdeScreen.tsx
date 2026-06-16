@@ -6,12 +6,25 @@ import { MicroPythonRepl } from '../serial/micropythonRepl';
 import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
 import { REQUIRED_RUNTIME_FILES, type RuntimeFileCheck } from '../serial/runtimeFiles';
 import { developerModeStatus, SerialTransport, type SerialLogLevel } from '../serial/serialTransport';
+import { loadIdeDrafts, saveIdeDrafts, type IdeDraft } from '../lib/storage';
 import { useStore } from '../store/store';
 
 interface TerminalLine {
   level: SerialLogLevel;
   text: string;
 }
+
+interface IdeFileRow {
+  name: string;
+  path: string;
+  type: 'file' | 'dir' | 'unknown';
+  size?: number;
+  source: 'local' | 'pico' | 'both';
+  uploaded: boolean;
+}
+
+const DEFAULT_CODE_PATH = '/min_kode.py';
+const DEFAULT_CODE = "print('Hej fra Pico Kontrol Panel')\n";
 
 export function PicoIdeScreen() {
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
@@ -20,8 +33,11 @@ export function PicoIdeScreen() {
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<PicoFileEntry[]>([]);
-  const [path, setPath] = useState('/user_code.py');
-  const [editorText, setEditorText] = useState("print('Hello from Pico Kontrol Panel')\n");
+  const [localFiles, setLocalFiles] = useState<IdeDraft[]>(() => ensureDefaultDraft(loadIdeDrafts()));
+  const [path, setPath] = useState(DEFAULT_CODE_PATH);
+  const [editorText, setEditorText] = useState(
+    () => ensureDefaultDraft(loadIdeDrafts()).find((draft) => draft.path === DEFAULT_CODE_PATH)?.content ?? DEFAULT_CODE,
+  );
   const [runtimeChecks, setRuntimeChecks] = useState<RuntimeFileCheck[]>([]);
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
@@ -46,6 +62,16 @@ export function PicoIdeScreen() {
   function pushLine(level: SerialLogLevel, text: string) {
     setLines((current) => [...current.slice(-140), { level, text }]);
   }
+
+  function updateLocalDraft(nextPath: string, content: string, uploaded: boolean) {
+    setLocalFiles((current) => {
+      const next = upsertDraft(current, nextPath, content, uploaded);
+      saveIdeDrafts(next);
+      return next;
+    });
+  }
+
+  const fileRows = buildFileRows(files, localFiles);
 
   async function connectUsb() {
     if (!status.supported) return;
@@ -144,13 +170,21 @@ export function PicoIdeScreen() {
       const text = await fs.readText(nextPath);
       setPath(nextPath);
       setEditorText(text);
+      updateLocalDraft(nextPath, text, true);
       pushLine('success', `Læste ${nextPath}.`);
     });
   }
 
   async function saveFile() {
+    if (!fsRef.current) {
+      updateLocalDraft(path, editorText, false);
+      pushLine('success', `Gemte ${displayPicoPath(path)} lokalt.`);
+      return;
+    }
+
     await withFs(async (fs) => {
       await fs.writeText(path, editorText);
+      updateLocalDraft(path, editorText, true);
       pushLine('success', `Gemte ${path}.`);
       await listFiles();
       await checkRuntimeFiles();
@@ -158,8 +192,20 @@ export function PicoIdeScreen() {
   }
 
   async function deleteFile() {
+    if (!fsRef.current) {
+      const next = localFiles.filter((draft) => draft.path !== path);
+      setLocalFiles(next);
+      saveIdeDrafts(next);
+      setEditorText('');
+      pushLine('warning', `Slettede ${displayPicoPath(path)} lokalt.`);
+      return;
+    }
+
     await withFs(async (fs) => {
       await fs.delete(path);
+      const next = localFiles.filter((draft) => draft.path !== path);
+      setLocalFiles(next);
+      saveIdeDrafts(next);
       pushLine('warning', `Slettede ${path}.`);
       setEditorText('');
       await listFiles();
@@ -177,8 +223,25 @@ export function PicoIdeScreen() {
     if (!nextPath) return;
     setPath(nextPath);
     setEditorText('');
+    updateLocalDraft(nextPath, '', false);
     setNewFileOpen(false);
     pushLine('info', `Ny fil klar: ${displayPicoPath(nextPath)}. Tryk Gem for at oprette den på Pico.`);
+  }
+
+  function openFile(file: IdeFileRow) {
+    if (file.type !== 'file') {
+      setPath(file.path);
+      return;
+    }
+
+    if (file.source === 'local') {
+      const draft = localFiles.find((item) => item.path === file.path);
+      setPath(file.path);
+      setEditorText(draft?.content ?? '');
+      return;
+    }
+
+    readFile(file.path);
   }
 
   async function installRuntimeFiles() {
@@ -254,20 +317,23 @@ export function PicoIdeScreen() {
             </div>
           </div>
           <div className="ide-file-list">
-            {files.length === 0 ? (
+            {fileRows.length === 0 ? (
               <button type="button" disabled>
                 Ingen filer læst
               </button>
             ) : (
-              files.map((file) => (
+              fileRows.map((file) => (
                 <button
                   type="button"
                   key={file.path}
-                  onClick={() => (file.type === 'file' ? readFile(file.path) : setPath(file.path))}
+                  onClick={() => openFile(file)}
                   className={path === file.path ? 'active' : ''}
                 >
                   <span>{file.name}</span>
-                  <small>{file.type === 'dir' ? 'mappe' : `${file.size ?? 0} B`}</small>
+                  <small>
+                    <i className={`ide-sync-dot sync-${file.source}`} aria-hidden="true" />
+                    {file.type === 'dir' ? 'mappe' : file.uploaded ? 'Pico' : 'lokal'}
+                  </small>
                 </button>
               ))
             )}
@@ -321,10 +387,10 @@ export function PicoIdeScreen() {
               <button className="btn btn-outline" type="button" onClick={softResetPico} disabled={!connected || busy}>
                 Reset
               </button>
-              <button className="btn btn-primary" type="button" onClick={saveFile} disabled={!connected || busy || !path.trim()}>
+              <button className="btn btn-primary" type="button" onClick={saveFile} disabled={busy || !path.trim()}>
                 Gem
               </button>
-              <button className="btn btn-outline btn-danger" type="button" onClick={deleteFile} disabled={!connected || busy || !path.trim()}>
+              <button className="btn btn-outline btn-danger" type="button" onClick={deleteFile} disabled={busy || !path.trim()}>
                 Slet
               </button>
             </div>
@@ -333,7 +399,12 @@ export function PicoIdeScreen() {
         </section>
 
         <section className="ide-panel ide-terminal-panel">
-          <h2>Terminal</h2>
+          <div className="ide-panel-head">
+            <h2>Terminal</h2>
+            <button className="btn btn-outline" type="button" onClick={() => setLines([])} disabled={lines.length === 0}>
+              Ryd
+            </button>
+          </div>
           <div className="ide-terminal" aria-live="polite">
             {lines.length === 0 ? (
               <div className="term-line">Ingen USB data endnu.</div>
@@ -394,6 +465,53 @@ function normalizePicoFileName(value: string): string {
 
 function displayPicoPath(value: string): string {
   return value.split('/').filter(Boolean).pop() ?? value;
+}
+
+function ensureDefaultDraft(drafts: IdeDraft[]): IdeDraft[] {
+  if (drafts.length > 0) return drafts;
+  return [{ path: DEFAULT_CODE_PATH, content: DEFAULT_CODE, uploaded: false, updatedAt: Date.now() }];
+}
+
+function upsertDraft(drafts: IdeDraft[], path: string, content: string, uploaded: boolean): IdeDraft[] {
+  const next = drafts.filter((draft) => draft.path !== path);
+  return [{ path, content, uploaded, updatedAt: Date.now() }, ...next].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function buildFileRows(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeFileRow[] {
+  const rows = new Map<string, IdeFileRow>();
+
+  for (const file of picoFiles) {
+    rows.set(file.path, {
+      name: file.name,
+      path: file.path,
+      type: file.type,
+      size: file.size,
+      source: 'pico',
+      uploaded: true,
+    });
+  }
+
+  for (const draft of localFiles) {
+    const existing = rows.get(draft.path);
+    if (existing) {
+      rows.set(draft.path, {
+        ...existing,
+        source: 'both',
+        uploaded: draft.uploaded,
+      });
+      continue;
+    }
+
+    rows.set(draft.path, {
+      name: displayPicoPath(draft.path),
+      path: draft.path,
+      type: 'file',
+      source: 'local',
+      uploaded: false,
+    });
+  }
+
+  return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'da'));
 }
 
 function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, text: string) => void): void {

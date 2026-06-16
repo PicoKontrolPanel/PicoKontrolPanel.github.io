@@ -25,9 +25,4 @@ export const REQUIRED_RUNTIME_FILES: RuntimeFile[] = [
     label: 'main.py',
     content: mainSource,
   },
-  {
-    path: '/user_code.py',
-    label: 'user_code.py',
-    content: "# Your Pico Kontrol code starts here.\nprint('user_code.py ready')\n",
-  },
 ];

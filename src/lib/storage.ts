@@ -4,6 +4,7 @@ import type { SavedDevice, User } from './types';
 
 const USER_KEY = 'pkp.user';
 const DEVICES_KEY = 'pkp.savedDevices';
+const IDE_DRAFTS_KEY = 'pkp.ideDrafts';
 
 export const APP_VERSION = 'Prototype Version 0.6.7';
 
@@ -52,9 +53,25 @@ export function clearAppData(): void {
   try {
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(DEVICES_KEY);
+    localStorage.removeItem(IDE_DRAFTS_KEY);
   } catch {
     /* storage unavailable - reset simply falls back to current memory */
   }
+}
+
+export interface IdeDraft {
+  path: string;
+  content: string;
+  uploaded: boolean;
+  updatedAt: number;
+}
+
+export function loadIdeDrafts(): IdeDraft[] {
+  return readJSON<IdeDraft[]>(IDE_DRAFTS_KEY)?.filter((draft) => draft.path && typeof draft.content === 'string') ?? [];
+}
+
+export function saveIdeDrafts(drafts: IdeDraft[]): void {
+  writeJSON(IDE_DRAFTS_KEY, drafts);
 }
 
 /** Insert or update a saved device by deviceID. */
