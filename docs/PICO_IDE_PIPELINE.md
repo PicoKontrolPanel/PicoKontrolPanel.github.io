@@ -46,7 +46,7 @@
    - The old `Læs` button is intentionally removed; clicking a file loads it, and `Opdater` reloads the file list.
 5. In progress: add safe installer for runtime files and library bundles.
    - The USB panel now checks required runtime files and can install missing/outdated files.
-   - Required files are currently `main.py`, `BLEPeripheral.py`, and `user_code.py`.
+   - Installable files are sourced from the root `firmware/` folder and currently include `main.py`, `BLEPeripheral.py`, `PicoRobotics.py`, and `hcsr04.py`.
    - Installer writes through a temporary file, verifies it, keeps a `.bak`, then promotes the file.
 6. In progress: add code execution controls.
    - `Kør` executes the current editor contents through raw REPL.
