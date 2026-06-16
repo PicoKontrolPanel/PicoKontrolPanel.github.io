@@ -1084,6 +1084,229 @@ button:disabled {
   padding-bottom: clamp(92px, 13vh, 124px);
 }
 
+/* ---- Pico IDE ---- */
+.ide-screen {
+  --content-max: var(--wide-max);
+  background: var(--grey-light);
+}
+
+.ide-layout {
+  flex: 1;
+  width: calc(100% - clamp(32px, 4.8vw, 80px));
+  max-width: var(--wide-max);
+  margin: 14px auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(220px, 1fr) minmax(160px, 0.45fr);
+  gap: 12px;
+}
+
+.ide-panel {
+  min-width: 0;
+  background: var(--white);
+  border: 2px solid var(--grey);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+}
+
+.ide-panel h2 {
+  margin: 0 0 8px;
+  color: var(--red);
+  font-size: 1.05rem;
+}
+
+.ide-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.ide-status-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.ide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.ide-actions .btn {
+  min-height: 48px;
+  white-space: nowrap;
+}
+
+.ide-terminal-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ide-files-panel,
+.ide-editor-panel {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ide-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ide-panel-head h2 {
+  margin-bottom: 0;
+}
+
+.ide-panel-head .btn,
+.ide-mini-actions .btn {
+  min-height: 38px;
+  padding-inline: 14px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+}
+
+.ide-mini-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ide-file-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.ide-file-list button {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  background: var(--grey-light);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.ide-file-list button.active {
+  background: var(--red);
+  color: var(--white);
+}
+
+.ide-file-list button:disabled {
+  color: var(--muted);
+}
+
+.ide-file-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.ide-file-list small {
+  font-weight: 800;
+  color: inherit;
+  opacity: 0.75;
+}
+
+.ide-path-input {
+  width: 100%;
+  height: 42px;
+  margin-bottom: 8px;
+  border: 2px solid var(--grey);
+  border-radius: 12px;
+  padding: 0 12px;
+  color: var(--text);
+  font: 700 0.92rem 'Consolas', 'SFMono-Regular', monospace;
+  outline: none;
+}
+
+.ide-editor {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: 2px solid var(--grey);
+  border-radius: 14px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--grey-light);
+  font: 0.9rem/1.45 'Consolas', 'SFMono-Regular', monospace;
+  outline: none;
+}
+
+.ide-terminal {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--grey-light);
+  border: 2px solid var(--grey);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.term-info {
+  color: var(--text);
+}
+
+@media (min-width: 980px) {
+  .ide-layout {
+    grid-template-columns: minmax(230px, 0.42fr) minmax(480px, 1fr);
+    grid-template-rows: auto minmax(0, 3fr) minmax(0, 1fr);
+  }
+
+  .ide-status-panel {
+    grid-column: 1 / -1;
+  }
+
+  .ide-files-panel {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+  }
+
+  .ide-editor-panel {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .ide-terminal-panel {
+    grid-column: 2;
+    grid-row: 3;
+  }
+}
+
+@media (max-width: 640px) {
+  .ide-status-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ide-actions {
+    justify-content: stretch;
+  }
+
+  .ide-actions .btn {
+    flex: 1;
+  }
+}
+
 /* ---- Transient toast (non-blocking error/status, no layout shift) ---- */
 .toast {
   position: absolute;

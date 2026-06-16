@@ -21,7 +21,8 @@ export type Screen =
   | 'dashboard'
   | 'connection'
   | 'create'
-  | 'control';
+  | 'control'
+  | 'ide';
 
 export type MenuPage =
   | 'user-settings'
@@ -108,6 +109,8 @@ interface AppState {
   clearSavedDevices: () => void;
   resetApplicationData: () => Promise<void>;
   updateUsername: (username: string) => void;
+  openPicoIde: () => void;
+  closePicoIde: () => void;
   reconnectLostDevice: () => Promise<void>;
   dismissConnectionLost: () => void;
 
@@ -460,6 +463,18 @@ export const useStore = create<AppState>((set, get) => {
       });
       pushToast('Brugernavn gemt.');
     },
+
+    openPicoIde: () =>
+      set({
+        screen: 'ide',
+        active: null,
+        layout: [],
+        sliderValues: {},
+        editMode: false,
+        sideMenuOpen: false,
+        menuPage: null,
+      }),
+    closePicoIde: () => set({ screen: 'dashboard', sideMenuOpen: false, menuPage: null }),
 
     reconnectLostDevice: async () => {
       const saved = get().connectionLost;
