@@ -1098,7 +1098,7 @@ button:disabled {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(220px, 1fr) minmax(160px, 0.45fr);
+  grid-template-rows: minmax(140px, 0.6fr) auto minmax(240px, 1fr) minmax(160px, 0.45fr);
   gap: 12px;
 }
 
@@ -1125,19 +1125,21 @@ button:disabled {
 
 .ide-status-panel {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: stretch;
+  flex-direction: column;
+  justify-content: flex-start;
   gap: 14px;
 }
 
 .ide-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: stretch;
   gap: 10px;
 }
 
 .ide-actions .btn {
+  flex: 1;
   min-height: 48px;
   white-space: nowrap;
 }
@@ -1180,6 +1182,34 @@ button:disabled {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.ide-runtime {
+  display: grid;
+  gap: 10px;
+}
+
+.ide-runtime-list {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.ide-runtime-list span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.runtime-ok {
+  color: #2f8f49;
+}
+
+.runtime-missing,
+.runtime-outdated,
+.runtime-unknown {
+  color: #b07208;
 }
 
 .ide-file-list {
@@ -1227,18 +1257,6 @@ button:disabled {
   opacity: 0.75;
 }
 
-.ide-path-input {
-  width: 100%;
-  height: 42px;
-  margin-bottom: 8px;
-  border: 2px solid var(--grey);
-  border-radius: 12px;
-  padding: 0 12px;
-  color: var(--text);
-  font: 700 0.92rem 'Consolas', 'SFMono-Regular', monospace;
-  outline: none;
-}
-
 .ide-editor {
   flex: 1;
   min-height: 0;
@@ -1268,42 +1286,28 @@ button:disabled {
 
 @media (min-width: 980px) {
   .ide-layout {
-    grid-template-columns: minmax(230px, 0.42fr) minmax(480px, 1fr);
-    grid-template-rows: auto minmax(0, 3fr) minmax(0, 1fr);
-  }
-
-  .ide-status-panel {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(250px, 0.38fr) minmax(520px, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto minmax(0, 0.48fr);
   }
 
   .ide-files-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .ide-status-panel {
     grid-column: 1;
     grid-row: 2 / span 2;
   }
 
   .ide-editor-panel {
     grid-column: 2;
-    grid-row: 2;
+    grid-row: 1 / span 2;
   }
 
   .ide-terminal-panel {
     grid-column: 2;
     grid-row: 3;
-  }
-}
-
-@media (max-width: 640px) {
-  .ide-status-panel {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .ide-actions {
-    justify-content: stretch;
-  }
-
-  .ide-actions .btn {
-    flex: 1;
   }
 }
 

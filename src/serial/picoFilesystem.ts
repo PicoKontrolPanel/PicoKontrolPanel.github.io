@@ -90,6 +90,21 @@ with open(${pyString(path)}, 'ab') as f:
     }
   }
 
+  async replaceTextSafely(path: string, content: string): Promise<void> {
+    const tmpPath = `${path}.tmp`;
+    const backupPath = `${path}.bak`;
+    await this.writeText(tmpPath, content);
+    const written = await this.readText(tmpPath);
+    if (written !== content) {
+      await this.delete(tmpPath).catch(() => {});
+      throw new Error(`Verificering fejlede for ${path}.`);
+    }
+
+    await this.delete(backupPath).catch(() => {});
+    await this.rename(path, backupPath).catch(() => {});
+    await this.rename(tmpPath, path);
+  }
+
   async delete(path: string): Promise<void> {
     const result = await this.repl.exec(`
 import os

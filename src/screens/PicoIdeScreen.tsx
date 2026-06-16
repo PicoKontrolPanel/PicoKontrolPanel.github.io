@@ -3,6 +3,7 @@ import { TopBar } from '../components/TopBar';
 import { Glyph } from '../assets/icons';
 import { MicroPythonRepl } from '../serial/micropythonRepl';
 import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
+import { REQUIRED_RUNTIME_FILES, type RuntimeFileCheck } from '../serial/runtimeFiles';
 import { developerModeStatus, SerialTransport, type SerialLogLevel } from '../serial/serialTransport';
 import { useStore } from '../store/store';
 
@@ -20,6 +21,7 @@ export function PicoIdeScreen() {
   const [files, setFiles] = useState<PicoFileEntry[]>([]);
   const [path, setPath] = useState('/user_code.py');
   const [editorText, setEditorText] = useState("print('Hello from Pico Kontrol Panel')\n");
+  const [runtimeChecks, setRuntimeChecks] = useState<RuntimeFileCheck[]>([]);
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
   const fsRef = useRef<PicoFilesystem | null>(null);
@@ -55,6 +57,7 @@ export function PicoIdeScreen() {
       await repl.interrupt();
       pushLine('success', 'Sendte stop-signal til Pico REPL.');
       await listFilesWith(fsRef.current);
+      await checkRuntimeFilesWith(fsRef.current);
     } catch (err) {
       pushLine('error', err instanceof Error ? err.message : 'USB-forbindelse mislykkedes.');
       setConnected(false);
@@ -101,6 +104,39 @@ export function PicoIdeScreen() {
     }
   }
 
+  async function checkRuntimeFiles() {
+    await checkRuntimeFilesWith(fsRef.current);
+  }
+
+  async function checkRuntimeFilesWith(fs: PicoFilesystem | null) {
+    if (!fs) return;
+    setBusy(true);
+    try {
+      const checks: RuntimeFileCheck[] = [];
+      for (const file of REQUIRED_RUNTIME_FILES) {
+        try {
+          const current = await fs.readText(file.path);
+          const ok = current === file.content;
+          checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Installeret' : 'Skal opdateres' });
+        } catch {
+          checks.push({ ...file, status: 'missing', detail: 'Mangler' });
+        }
+      }
+      setRuntimeChecks(checks);
+      const missing = checks.filter((check) => check.status === 'missing').length;
+      const outdated = checks.filter((check) => check.status === 'outdated').length;
+      if (missing || outdated) {
+        pushLine('warning', `Runtime check: ${missing} mangler, ${outdated} skal opdateres.`);
+      } else {
+        pushLine('success', 'Runtime check: alle filer er klar.');
+      }
+    } catch (err) {
+      pushLine('error', err instanceof Error ? err.message : 'Runtime check fejlede.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function readFile(nextPath = path) {
     await withFs(async (fs) => {
       const text = await fs.readText(nextPath);
@@ -115,6 +151,7 @@ export function PicoIdeScreen() {
       await fs.writeText(path, editorText);
       pushLine('success', `Gemte ${path}.`);
       await listFiles();
+      await checkRuntimeFiles();
     });
   }
 
@@ -124,7 +161,69 @@ export function PicoIdeScreen() {
       pushLine('warning', `Slettede ${path}.`);
       setEditorText('');
       await listFiles();
+      await checkRuntimeFiles();
     });
+  }
+
+  async function newFile() {
+    const name = window.prompt('Filnavn på Pico', '/user_code.py');
+    const nextPath = normalizePicoPath(name ?? '');
+    if (!nextPath) return;
+    setPath(nextPath);
+    setEditorText('');
+    pushLine('info', `Ny fil klar: ${nextPath}. Tryk Gem for at oprette den på Pico.`);
+  }
+
+  async function installRuntimeFiles() {
+    await withFs(async (fs) => {
+      const checks =
+        runtimeChecks.length > 0
+          ? runtimeChecks
+          : REQUIRED_RUNTIME_FILES.map((file) => ({ ...file, status: 'unknown', detail: 'Ikke tjekket' }) as RuntimeFileCheck);
+      const targets = checks.filter((check) => check.status !== 'ok');
+      if (targets.length === 0) {
+        pushLine('success', 'Alle runtime filer er allerede installeret.');
+        return;
+      }
+
+      for (const file of targets) {
+        pushLine('info', `Installerer ${file.label}...`);
+        await fs.replaceTextSafely(file.path, file.content);
+        pushLine('success', `Installerede ${file.label}.`);
+      }
+      await listFiles();
+      await checkRuntimeFiles();
+    });
+  }
+
+  async function runEditorCode() {
+    const repl = replRef.current;
+    if (!repl) return;
+    setBusy(true);
+    try {
+      const result = await repl.exec(editorText, 20000);
+      if (result.output.trim()) pushLine('info', result.output);
+      if (result.error.trim()) pushLine('error', result.error);
+      if (!result.output.trim() && !result.error.trim()) pushLine('success', 'Koden kørte uden output.');
+    } catch (err) {
+      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke køre koden.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function softResetPico() {
+    const repl = replRef.current;
+    if (!repl) return;
+    setBusy(true);
+    try {
+      await repl.softReset();
+      pushLine('success', 'Sendte soft reset til Pico.');
+    } catch (err) {
+      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke genstarte Pico.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -132,28 +231,17 @@ export function PicoIdeScreen() {
       <TopBar title="Pico IDE" onMenu={() => toggleSideMenu()} />
 
       <div className="ide-layout">
-        <section className="ide-panel ide-status-panel">
-          <div>
-            <h2>USB udvikling</h2>
-            <p>{status.message}</p>
-          </div>
-          <div className="ide-actions">
-            <button className="btn btn-primary" type="button" onClick={connectUsb} disabled={!status.supported || connected || connecting}>
-              <Glyph name="power" size={22} />
-              {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
-            </button>
-            <button className="btn btn-outline" type="button" onClick={disconnectUsb} disabled={!connected}>
-              Afbryd
-            </button>
-          </div>
-        </section>
-
         <section className="ide-panel ide-files-panel">
           <div className="ide-panel-head">
             <h2>Filer</h2>
-            <button className="btn btn-outline" type="button" onClick={listFiles} disabled={!connected || busy}>
-              Opdater
-            </button>
+            <div className="ide-mini-actions">
+              <button className="btn btn-outline" type="button" onClick={newFile}>
+                Ny
+              </button>
+              <button className="btn btn-outline" type="button" onClick={listFiles} disabled={!connected || busy}>
+                Opdater
+              </button>
+            </div>
           </div>
           <div className="ide-file-list">
             {files.length === 0 ? (
@@ -176,12 +264,52 @@ export function PicoIdeScreen() {
           </div>
         </section>
 
+        <section className="ide-panel ide-status-panel">
+          <div>
+            <h2>USB udvikling</h2>
+            <p>{status.message}</p>
+          </div>
+          <div className="ide-actions">
+            <button className="btn btn-primary" type="button" onClick={connectUsb} disabled={!status.supported || connected || connecting}>
+              <Glyph name="power" size={22} />
+              {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
+            </button>
+            <button className="btn btn-outline" type="button" onClick={disconnectUsb} disabled={!connected}>
+              Afbryd
+            </button>
+          </div>
+          <div className="ide-runtime">
+            <div className="ide-mini-actions">
+              <button className="btn btn-outline" type="button" onClick={checkRuntimeFiles} disabled={!connected || busy}>
+                Tjek filer
+              </button>
+              <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={!connected || busy}>
+                Installer
+              </button>
+            </div>
+            <div className="ide-runtime-list">
+              {runtimeChecks.length === 0 ? (
+                <span>Runtime filer er ikke tjekket endnu.</span>
+              ) : (
+                runtimeChecks.map((check) => (
+                  <span className={`runtime-${check.status}`} key={check.path}>
+                    {check.label}: {check.detail}
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+
         <section className="ide-panel ide-editor-panel">
           <div className="ide-panel-head">
-            <h2>Editor</h2>
+            <h2>{path}</h2>
             <div className="ide-mini-actions">
-              <button className="btn btn-outline" type="button" onClick={() => readFile()} disabled={!connected || busy}>
-                Læs
+              <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={!connected || busy}>
+                Kør
+              </button>
+              <button className="btn btn-outline" type="button" onClick={softResetPico} disabled={!connected || busy}>
+                Reset
               </button>
               <button className="btn btn-primary" type="button" onClick={saveFile} disabled={!connected || busy || !path.trim()}>
                 Gem
@@ -191,7 +319,6 @@ export function PicoIdeScreen() {
               </button>
             </div>
           </div>
-          <input className="ide-path-input" value={path} onChange={(e) => setPath(e.target.value)} />
           <textarea className="ide-editor" value={editorText} onChange={(e) => setEditorText(e.target.value)} spellCheck={false} />
         </section>
 
@@ -212,4 +339,10 @@ export function PicoIdeScreen() {
       </div>
     </div>
   );
+}
+
+function normalizePicoPath(value: string): string {
+  const trimmed = value.trim().replace(/\\/g, '/');
+  if (!trimmed || trimmed.endsWith('/')) return '';
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
