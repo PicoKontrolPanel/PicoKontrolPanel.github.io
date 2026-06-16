@@ -1,4 +1,4 @@
-import { Glyph, type GlyphName } from '../assets/icons';
+import { Glyph, teknologiskolenLogoUrl, type GlyphName } from '../assets/icons';
 import { useStore } from '../store/store';
 
 export function SideMenu() {
@@ -37,6 +37,15 @@ export function SideMenu() {
         )}
 
         <div className="spacer" />
+        <a
+          className="sidemenu-logo-link"
+          href="https://www.teknologiskolen.dk/"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Åbn Teknologiskolen"
+        >
+          <img src={teknologiskolenLogoUrl} alt="Teknologiskolen" />
+        </a>
         {onControlPanel && <MenuButton label="Forlad" icon="exit" onClick={() => disconnect()} />}
       </nav>
     </>

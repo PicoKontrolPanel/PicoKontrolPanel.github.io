@@ -33,6 +33,7 @@ export function deviceIconUrl(iconID: number): string {
 
 export const logoUrl = `${BASE}art/logo.png`;
 export const splashUrl = `${BASE}art/splash.png`;
+export const teknologiskolenLogoUrl = `${BASE}art/logo_teknologiskolen_white.png`;
 
 export type GlyphName =
   | 'menu'

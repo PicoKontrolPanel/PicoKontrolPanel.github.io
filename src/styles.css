@@ -482,6 +482,17 @@ button:disabled {
   animation: slidein 280ms ease;
 }
 
+.sidemenu::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 100vw;
+  background: var(--red);
+  pointer-events: none;
+}
+
 @keyframes slidein {
   from {
     transform: translateX(100%);
@@ -514,6 +525,27 @@ button:disabled {
   flex: 1;
 }
 
+.sidemenu-logo-link {
+  position: relative;
+  z-index: 1;
+  width: 52px;
+  min-height: 62px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--white);
+}
+
+.sidemenu-logo-link:active {
+  background: var(--red-dark);
+}
+
+.sidemenu-logo-link img {
+  width: 38px;
+  height: auto;
+  display: block;
+}
+
 .sidemenu button span {
   display: none;
 }
@@ -544,6 +576,15 @@ button:disabled {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .sidemenu-logo-link {
+    width: 100%;
+    min-height: 76px;
+  }
+
+  .sidemenu-logo-link img {
+    width: 50px;
   }
 }
 
