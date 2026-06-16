@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { TopBar } from '../components/TopBar';
+import { Modal } from '../components/Modal';
 import { Glyph } from '../assets/icons';
 import { MicroPythonRepl } from '../serial/micropythonRepl';
 import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
@@ -22,6 +23,8 @@ export function PicoIdeScreen() {
   const [path, setPath] = useState('/user_code.py');
   const [editorText, setEditorText] = useState("print('Hello from Pico Kontrol Panel')\n");
   const [runtimeChecks, setRuntimeChecks] = useState<RuntimeFileCheck[]>([]);
+  const [newFileOpen, setNewFileOpen] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
   const fsRef = useRef<PicoFilesystem | null>(null);
@@ -30,7 +33,6 @@ export function PicoIdeScreen() {
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
-      onLine: (line) => pushLine('info', line || ' '),
       onLog: pushLine,
       onDisconnect: () => {
         setConnected(false);
@@ -166,12 +168,17 @@ export function PicoIdeScreen() {
   }
 
   async function newFile() {
-    const name = window.prompt('Filnavn på Pico', '/user_code.py');
-    const nextPath = normalizePicoPath(name ?? '');
+    setNewFileName('');
+    setNewFileOpen(true);
+  }
+
+  function createNewFile() {
+    const nextPath = normalizePicoFileName(newFileName);
     if (!nextPath) return;
     setPath(nextPath);
     setEditorText('');
-    pushLine('info', `Ny fil klar: ${nextPath}. Tryk Gem for at oprette den på Pico.`);
+    setNewFileOpen(false);
+    pushLine('info', `Ny fil klar: ${displayPicoPath(nextPath)}. Tryk Gem for at oprette den på Pico.`);
   }
 
   async function installRuntimeFiles() {
@@ -198,7 +205,10 @@ export function PicoIdeScreen() {
 
   async function runEditorCode() {
     const repl = replRef.current;
-    if (!repl) return;
+    if (!repl) {
+      runLocalPythonPlayground(editorText, pushLine);
+      return;
+    }
     setBusy(true);
     try {
       const result = await repl.exec(editorText, 20000);
@@ -274,7 +284,7 @@ export function PicoIdeScreen() {
               <Glyph name="power" size={22} />
               {connecting ? 'Forbinder...' : connected ? 'Forbundet' : 'Forbind USB'}
             </button>
-            <button className="btn btn-outline" type="button" onClick={disconnectUsb} disabled={!connected}>
+            <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={disconnectUsb} disabled={!connected}>
               Afbryd
             </button>
           </div>
@@ -303,9 +313,9 @@ export function PicoIdeScreen() {
 
         <section className="ide-panel ide-editor-panel">
           <div className="ide-panel-head">
-            <h2>{path}</h2>
+            <h2>{displayPicoPath(path)}</h2>
             <div className="ide-mini-actions">
-              <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={!connected || busy}>
+              <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={busy}>
                 Kør
               </button>
               <button className="btn btn-outline" type="button" onClick={softResetPico} disabled={!connected || busy}>
@@ -337,12 +347,151 @@ export function PicoIdeScreen() {
           </div>
         </section>
       </div>
+
+      {newFileOpen && (
+        <Modal title="Ny Python-fil" onClose={() => setNewFileOpen(false)}>
+          <form
+            className="ide-new-file-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              createNewFile();
+            }}
+          >
+            <label htmlFor="new-pico-file">Filnavn</label>
+            <div className="ide-new-file-row">
+              <input
+                id="new-pico-file"
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                autoFocus
+                placeholder="test"
+              />
+              <span>.py</span>
+            </div>
+            <p>Skriv kun navnet. Appen tilføjer .py automatisk.</p>
+            <button className="btn btn-primary" type="submit" disabled={!normalizePicoFileName(newFileName)}>
+              Opret
+            </button>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
 
-function normalizePicoPath(value: string): string {
-  const trimmed = value.trim().replace(/\\/g, '/');
-  if (!trimmed || trimmed.endsWith('/')) return '';
-  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+function normalizePicoFileName(value: string): string {
+  const cleaned = value
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .pop()
+    ?.replace(/\.py$/i, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned ? `/${cleaned}.py` : '';
+}
+
+function displayPicoPath(value: string): string {
+  return value.split('/').filter(Boolean).pop() ?? value;
+}
+
+function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, text: string) => void): void {
+  const env = new Map<string, string | number | boolean>();
+  const output: string[] = [];
+  const errors: string[] = [];
+
+  code.split(/\r?\n/).forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) return;
+
+    const assignment = line.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/);
+    if (assignment) {
+      const value = evalBeginnerExpression(assignment[2], env);
+      if (value.ok) {
+        env.set(assignment[1], value.value);
+      } else {
+        errors.push(`Linje ${index + 1}: ${value.error}`);
+      }
+      return;
+    }
+
+    const printCall = line.match(/^print\((.*)\)$/);
+    if (printCall) {
+      const parts = splitPrintArgs(printCall[1]);
+      const values = parts.map((part) => evalBeginnerExpression(part, env));
+      const failed = values.find((value) => !value.ok);
+      if (failed && !failed.ok) {
+        errors.push(`Linje ${index + 1}: ${failed.error}`);
+        return;
+      }
+      output.push(values.map((value) => (value.ok ? String(value.value) : '')).join(' '));
+      return;
+    }
+
+    errors.push(`Linje ${index + 1}: Offline playground understøtter print(...) og simple variabler.`);
+  });
+
+  if (output.length) log('info', output.join('\n'));
+  if (errors.length) log('error', errors.join('\n'));
+  if (!output.length && !errors.length) log('success', 'Offline kørsel færdig uden output.');
+}
+
+type EvalResult = { ok: true; value: string | number | boolean } | { ok: false; error: string };
+
+function evalBeginnerExpression(raw: string, env: Map<string, string | number | boolean>): EvalResult {
+  const expr = raw.trim();
+  if (!expr) return { ok: true, value: '' };
+
+  const quoted = expr.match(/^(['"])(.*)\1$/);
+  if (quoted) {
+    return { ok: true, value: quoted[2].replace(/\\n/g, '\n').replace(/\\t/g, '\t') };
+  }
+
+  if (/^-?\d+(\.\d+)?$/.test(expr)) {
+    return { ok: true, value: Number(expr) };
+  }
+
+  if (expr === 'True') return { ok: true, value: true };
+  if (expr === 'False') return { ok: true, value: false };
+
+  if (/^[A-Za-z_]\w*$/.test(expr)) {
+    return env.has(expr) ? { ok: true, value: env.get(expr) ?? '' } : { ok: false, error: `${expr} findes ikke endnu.` };
+  }
+
+  const numericExpr = expr.replace(/\b[A-Za-z_]\w*\b/g, (name) => {
+    const value = env.get(name);
+    return typeof value === 'number' ? String(value) : 'NaN';
+  });
+  if (/^[\d+\-*/(). %NaN]+$/.test(numericExpr) && !numericExpr.includes('NaN')) {
+    try {
+      const value = Function(`"use strict"; return (${numericExpr});`)();
+      return Number.isFinite(value) ? { ok: true, value } : { ok: false, error: 'Regnestykket kunne ikke beregnes.' };
+    } catch {
+      return { ok: false, error: 'Regnestykket kunne ikke læses.' };
+    }
+  }
+
+  return { ok: false, error: `Kan ikke køre "${expr}" offline endnu.` };
+}
+
+function splitPrintArgs(value: string): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let quote: string | null = null;
+
+  for (const char of value) {
+    if ((char === '"' || char === "'") && current[current.length - 1] !== '\\') {
+      quote = quote === char ? null : quote ?? char;
+    }
+    if (char === ',' && !quote) {
+      parts.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  parts.push(current);
+  return parts;
 }
