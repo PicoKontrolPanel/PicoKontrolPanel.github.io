@@ -466,11 +466,12 @@ button:disabled {
 }
 
 .sidemenu {
+  --sidemenu-w: clamp(68px, 7vw, 96px);
   position: absolute;
   top: var(--topbar-h);
-  right: 0;
+  right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) / 2 + 20px));
   bottom: 0;
-  width: clamp(68px, 7vw, 96px);
+  width: var(--sidemenu-w);
   background: var(--red);
   z-index: 9;
   display: flex;
@@ -497,6 +498,7 @@ button:disabled {
   border-radius: 16px;
   display: grid;
   place-items: center;
+  gap: 10px;
 }
 
 .sidemenu button:active {
@@ -510,6 +512,39 @@ button:disabled {
 
 .sidemenu .spacer {
   flex: 1;
+}
+
+.sidemenu button span {
+  display: none;
+}
+
+@media (min-width: 760px) {
+  .sidemenu {
+    --sidemenu-w: clamp(150px, 12vw, 184px);
+    right: max(0px, calc(50vw - var(--wide-max) / 2 - var(--sidemenu-w) + 60px));
+    align-items: stretch;
+    padding-inline: 10px;
+  }
+
+  .sidemenu button {
+    width: 100%;
+    grid-template-columns: 32px 1fr;
+    justify-items: start;
+    padding: 0 14px;
+    font-weight: 800;
+  }
+
+  .sidemenu button svg {
+    justify-self: center;
+  }
+
+  .sidemenu button span {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 /* ---- Modal ---- */

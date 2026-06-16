@@ -1,4 +1,4 @@
-import { Glyph } from '../assets/icons';
+import { Glyph, type GlyphName } from '../assets/icons';
 import { useStore } from '../store/store';
 
 export function SideMenu() {
@@ -20,66 +20,44 @@ export function SideMenu() {
       <nav className="sidemenu" aria-label="Sidemenu">
         {onDashboard && (
           <>
-            <button className="iconbtn" type="button" onClick={() => openMenuPage('user-settings')} aria-label="Brugerindstillinger">
-              <Glyph name="user" />
-            </button>
-            <button
-              className="iconbtn"
-              type="button"
-              onClick={() => openMenuPage('application-settings')}
-              aria-label="Applikationsindstillinger"
-            >
-              <Glyph name="settings" />
-            </button>
-            <button
-              className="iconbtn"
-              type="button"
-              onClick={() => openMenuPage('application-help')}
-              aria-label="Hjælp til applikationen"
-            >
-              <Glyph name="help" />
-            </button>
-            <button className="iconbtn" type="button" onClick={() => toggleDebugger(true)} aria-label="Fejlfinding">
-              <Glyph name="debugger" />
-            </button>
+            <MenuButton label="Bruger" icon="user" onClick={() => openMenuPage('user-settings')} />
+            <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('application-settings')} />
+            <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('application-help')} />
+            <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
           </>
         )}
 
         {onControlPanel && (
           <>
-            <button
-              className="iconbtn"
-              type="button"
-              onClick={() => openMenuPage('device-settings')}
-              aria-label="Enhedsindstillinger"
-            >
-              <Glyph name="settings" />
-            </button>
-            <button
-              className="iconbtn"
-              type="button"
-              onClick={() => setEditMode(true)}
-              disabled={!canEdit}
-              aria-label="Rediger enhed"
-            >
-              <Glyph name="edit" />
-            </button>
-            <button className="iconbtn" type="button" onClick={() => openMenuPage('device-help')} aria-label="Hjælp til enheden">
-              <Glyph name="help" />
-            </button>
-            <button className="iconbtn" type="button" onClick={() => toggleDebugger(true)} aria-label="Fejlfinding">
-              <Glyph name="debugger" />
-            </button>
+            <MenuButton label="Indstillinger" icon="settings" onClick={() => openMenuPage('device-settings')} />
+            <MenuButton label="Rediger" icon="edit" onClick={() => setEditMode(true)} disabled={!canEdit} />
+            <MenuButton label="Hjælp" icon="help" onClick={() => openMenuPage('device-help')} />
+            <MenuButton label="Fejlfinding" icon="debugger" onClick={() => toggleDebugger(true)} />
           </>
         )}
 
         <div className="spacer" />
-        {onControlPanel && (
-          <button className="iconbtn" type="button" onClick={() => disconnect()} aria-label="Forlad enhed">
-            <Glyph name="exit" />
-          </button>
-        )}
+        {onControlPanel && <MenuButton label="Forlad" icon="exit" onClick={() => disconnect()} />}
       </nav>
     </>
+  );
+}
+
+function MenuButton({
+  label,
+  icon,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  icon: GlyphName;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button className="iconbtn" type="button" onClick={onClick} disabled={disabled} aria-label={label}>
+      <Glyph name={icon} />
+      <span>{label}</span>
+    </button>
   );
 }
