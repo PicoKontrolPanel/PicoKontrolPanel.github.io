@@ -68,6 +68,7 @@ export function PicoIdeScreen() {
 
   const status = developerModeStatus();
   const bleMode = picoIdeOrigin === 'control' && !!active && isBleConnected();
+  const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
@@ -763,13 +764,19 @@ export function PicoIdeScreen() {
             <small className="muted-note">
               Indbygget: {BUNDLED_MICROPYTHON.board}, {BUNDLED_MICROPYTHON.version} ({BUNDLED_MICROPYTHON.date}).
             </small>
-            <button className="btn btn-primary btn-block" type="button" onClick={installMicroPython} disabled={busy || !supportsBundledMicroPythonInstall()}>
-              Installer på Pico
-            </button>
-            {!supportsBundledMicroPythonInstall() && (
-              <div className="notice warning">
-                Automatisk installation kræver Chrome eller Edge på en computer.
-              </div>
+            {canInstallMicroPythonDirectly ? (
+              <button className="btn btn-primary btn-block" type="button" onClick={installMicroPython} disabled={busy}>
+                Installer på Pico
+              </button>
+            ) : (
+              <>
+                <a className="btn btn-primary btn-block" href={BUNDLED_MICROPYTHON.assetPath} download={BUNDLED_MICROPYTHON.fileName}>
+                  Download MicroPython UF2
+                </a>
+                <div className="notice warning">
+                  Brave understøtter ikke direkte installation her. Download UF2-filen og kopier den til RPI-RP2-drevet.
+                </div>
+              </>
             )}
             <a className="btn btn-outline btn-block" href="https://www.raspberrypi.com/documentation/microcontrollers/micropython.html" target="_blank" rel="noreferrer">
               Se vejledning
