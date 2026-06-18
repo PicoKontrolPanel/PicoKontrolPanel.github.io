@@ -8,6 +8,7 @@ interface RunMessage {
 interface LegacyMicroPythonGlobal {
   importScripts: (...urls: string[]) => void;
   MICROPYTHON_RUNTIME_BASE?: string;
+  MICROPYTHON_WRITE?: (value: string) => void;
   mp_js_init?: (stackSize: number) => void;
   mp_js_do_str?: (code: string) => number;
 }
@@ -24,6 +25,7 @@ self.onmessage = async (event: MessageEvent<RunMessage>) => {
   try {
     const output: string[] = [];
     const errors: string[] = [];
+    const stdout: string[] = [];
     const originalLog = console.log;
     const originalError = console.error;
     const originalWarn = console.warn;
@@ -34,10 +36,11 @@ self.onmessage = async (event: MessageEvent<RunMessage>) => {
 
     try {
       const mp = await loadMicroPython(message.runtimeUrl);
+      mp.MICROPYTHON_WRITE = (value: string) => stdout.push(value);
       const exitCode = mp.mp_js_do_str?.(message.code) ?? 1;
-      postResult(message.id, exitCode === 0, output.join('\n'), errors.join('\n'));
+      postResult(message.id, exitCode === 0, formatOutput(stdout, output), errors.join('\n'));
     } catch (err) {
-      postResult(message.id, false, output.join('\n'), formatError(err, errors));
+      postResult(message.id, false, formatOutput(stdout, output), formatError(err, errors));
     } finally {
       console.log = originalLog;
       console.error = originalError;
@@ -73,6 +76,10 @@ async function loadMicroPython(runtimeUrl: string): Promise<LegacyMicroPythonGlo
   }
 
   return mp;
+}
+
+function formatOutput(stdout: string[], consoleOutput: string[]): string {
+  return [stdout.join(''), ...consoleOutput].filter((value) => value.length > 0).join('\n');
 }
 
 function waitForMicroPythonApi(mp: LegacyMicroPythonGlobal): Promise<void> {

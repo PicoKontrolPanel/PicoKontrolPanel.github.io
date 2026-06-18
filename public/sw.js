@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pico-kontrol-panel-v1';
+const CACHE_NAME = 'pico-kontrol-panel-v2';
 const APP_SHELL = [
   './',
   './index.html',

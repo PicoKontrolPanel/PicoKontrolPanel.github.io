@@ -25,3 +25,5 @@ Local patch:
 - Worker path detection reads `self.MICROPYTHON_RUNTIME_BASE` when present so
   the WASM file is loaded beside this runtime instead of beside Vite's worker
   bundle.
+- Browser-worker stdout uses `self.MICROPYTHON_WRITE` instead of the Node
+  `Buffer`/`process.stdout` path.
