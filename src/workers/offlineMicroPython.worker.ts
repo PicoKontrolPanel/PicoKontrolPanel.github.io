@@ -13,6 +13,7 @@ interface LegacyMicroPythonGlobal {
 }
 
 const STACK_SIZE = 64 * 1024;
+const RUNTIME_READY_TIMEOUT_MS = 5000;
 let micropythonLoaded = false;
 let micropythonInitialized = false;
 
@@ -32,7 +33,7 @@ self.onmessage = async (event: MessageEvent<RunMessage>) => {
     console.error = (...args: unknown[]) => errors.push(args.map(String).join(' '));
 
     try {
-      const mp = loadMicroPython(message.runtimeUrl);
+      const mp = await loadMicroPython(message.runtimeUrl);
       const exitCode = mp.mp_js_do_str?.(message.code) ?? 1;
       postResult(message.id, exitCode === 0, output.join('\n'), errors.join('\n'));
     } catch (err) {
@@ -51,7 +52,7 @@ self.onmessage = async (event: MessageEvent<RunMessage>) => {
   }
 };
 
-function loadMicroPython(runtimeUrl: string): LegacyMicroPythonGlobal {
+async function loadMicroPython(runtimeUrl: string): Promise<LegacyMicroPythonGlobal> {
   const mp = self as unknown as LegacyMicroPythonGlobal;
 
   if (!micropythonLoaded) {
@@ -59,6 +60,8 @@ function loadMicroPython(runtimeUrl: string): LegacyMicroPythonGlobal {
     mp.importScripts(runtimeUrl);
     micropythonLoaded = true;
   }
+
+  await waitForMicroPythonApi(mp);
 
   if (!mp.mp_js_init || !mp.mp_js_do_str) {
     throw new Error('MicroPython WebAssembly blev hentet, men JavaScript-APIet blev ikke fundet.');
@@ -70,6 +73,29 @@ function loadMicroPython(runtimeUrl: string): LegacyMicroPythonGlobal {
   }
 
   return mp;
+}
+
+function waitForMicroPythonApi(mp: LegacyMicroPythonGlobal): Promise<void> {
+  if (mp.mp_js_init && mp.mp_js_do_str) return Promise.resolve();
+
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      if (mp.mp_js_init && mp.mp_js_do_str) {
+        resolve();
+        return;
+      }
+
+      if (Date.now() - start > RUNTIME_READY_TIMEOUT_MS) {
+        reject(new Error('MicroPython WebAssembly blev hentet, men JavaScript-APIet blev ikke klar i tide.'));
+        return;
+      }
+
+      setTimeout(check, 20);
+    };
+
+    check();
+  });
 }
 
 function postResult(id: number, ok: boolean, output: string, error: string) {

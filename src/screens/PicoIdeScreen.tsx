@@ -31,6 +31,11 @@ interface IdeFileRow {
   uploaded: boolean;
 }
 
+interface ComputerSave {
+  path: string;
+  content: string;
+}
+
 const DEFAULT_CODE_PATH = '/min_kode.py';
 const DEFAULT_CODE = "print('Hej fra Pico Kontrol Panel')\n";
 
@@ -66,6 +71,7 @@ export function PicoIdeScreen() {
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [runningOnPico, setRunningOnPico] = useState(false);
   const [terminalFollow, setTerminalFollow] = useState(true);
+  const [lastComputerSave, setLastComputerSave] = useState<ComputerSave | null>(null);
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
   const fsRef = useRef<PicoFilesystem | null>(null);
@@ -79,6 +85,7 @@ export function PicoIdeScreen() {
   const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
   const editorLineCount = Math.max(1, editorText.split('\n').length);
   const editorByteSize = new Blob([editorText]).size;
+  const saveStatus = getEditorSaveStatus(path, editorText, localFiles, lastComputerSave);
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
@@ -399,6 +406,7 @@ export function PicoIdeScreen() {
     a.download = displayPicoPath(path);
     a.click();
     URL.revokeObjectURL(url);
+    setLastComputerSave({ path, content: editorText });
     setSaveOpen(false);
     pushLine('success', `Downloadede ${displayPicoPath(path)}.`);
   }
@@ -559,7 +567,7 @@ export function PicoIdeScreen() {
     if (!repl) {
       setBusy(true);
       setTerminalFollow(true);
-      pushLine('info', 'Starter offline MicroPython. Forbind en Pico med USB for at køre på den rigtige Pico.');
+      pushLine('info', "Starter offline MicroPython. Forbind en Pico med USB for at køre rigtig micropython på Pico'en.");
       try {
         const result = await runOfflineMicroPython(editorText);
         for (const issue of result.issues) {
@@ -631,6 +639,11 @@ export function PicoIdeScreen() {
     setTerminalFollow(true);
   }
 
+  function findLineEnd(text: string, index: number) {
+    const nextBreak = text.indexOf('\n', index);
+    return nextBreak === -1 ? text.length : nextBreak;
+  }
+
   function onEditorKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key !== 'Tab') return;
     e.preventDefault();
@@ -642,22 +655,23 @@ export function PicoIdeScreen() {
 
     if (e.shiftKey) {
       const lineStart = editorText.lastIndexOf('\n', start - 1) + 1;
-      const selectedText = editorText.slice(lineStart, end);
-      let removedBeforeStart = 0;
+      const lineEnd = start === end ? findLineEnd(editorText, start) : end;
+      const selectedText = editorText.slice(lineStart, lineEnd);
+      let removedBeforeCaret = 0;
       let removedTotal = 0;
       const outdented = selectedText.replace(/(^|\n)( {1,4}|\t)/g, (match, prefix, whitespace, offset) => {
         const removed = whitespace.length;
-        if (lineStart + offset < start) removedBeforeStart += removed;
+        if (lineStart + offset < start) removedBeforeCaret += removed;
         removedTotal += removed;
         return prefix;
       });
 
       if (removedTotal === 0) return;
-      const nextText = editorText.slice(0, lineStart) + outdented + editorText.slice(end);
+      const nextText = editorText.slice(0, lineStart) + outdented + editorText.slice(lineEnd);
       setEditorText(nextText);
       window.requestAnimationFrame(() => {
-        target.selectionStart = Math.max(lineStart, start - removedBeforeStart);
-        target.selectionEnd = Math.max(target.selectionStart, end - removedTotal);
+        target.selectionStart = Math.max(lineStart, start - removedBeforeCaret);
+        target.selectionEnd = start === end ? target.selectionStart : Math.max(target.selectionStart, end - removedTotal);
       });
       return;
     }
@@ -772,10 +786,16 @@ export function PicoIdeScreen() {
 
         <section className="ide-panel ide-editor-panel">
           <div className="ide-panel-head">
-            <h2>
-              {displayPicoPath(path)}
-              <small>{editorByteSize} bytes</small>
-            </h2>
+            <div className="ide-editor-title">
+              <h2>
+                {displayPicoPath(path)}
+                <small>{editorByteSize} bytes</small>
+              </h2>
+              <div className={`ide-save-status save-${saveStatus.kind}`} title={saveStatus.title} aria-label={saveStatus.title}>
+                <span className="ide-save-dot" aria-hidden="true" />
+                <span>{saveStatus.label}</span>
+              </div>
+            </div>
             <div className="ide-mini-actions">
               <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={busy}>
                 Kør
@@ -1065,6 +1085,34 @@ function ensureDefaultDraft(drafts: IdeDraft[]): IdeDraft[] {
 function upsertDraft(drafts: IdeDraft[], path: string, content: string, uploaded: boolean): IdeDraft[] {
   const next = drafts.filter((draft) => draft.path !== path);
   return [{ path, content, uploaded, updatedAt: Date.now() }, ...next].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function getEditorSaveStatus(path: string, content: string, drafts: IdeDraft[], computerSave: ComputerSave | null) {
+  const draft = drafts.find((item) => item.path === path);
+  const places: string[] = [];
+
+  if (draft?.content === content) {
+    places.push('browser');
+    if (draft.uploaded) places.push('Pico');
+  }
+
+  if (computerSave?.path === path && computerSave.content === content) {
+    places.push('computer');
+  }
+
+  if (places.length === 0) {
+    return {
+      kind: 'dirty',
+      label: 'Ikke gemt',
+      title: 'Ændringerne er ikke gemt endnu.',
+    };
+  }
+
+  return {
+    kind: 'saved',
+    label: `Gemt: ${places.join(' + ')}`,
+    title: `Den viste version er gemt i/på: ${places.join(', ')}.`,
+  };
 }
 
 function runtimeStatusLabel(status: RuntimeFileCheck['status']): string {
