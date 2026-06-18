@@ -51,15 +51,21 @@
 6. In progress: add code execution controls.
    - `Kør` executes the current editor contents through raw REPL.
    - `Stop` sends keyboard interrupt to the Pico for running code.
-7. Todo: replace the plain textarea with a Python-aware editor.
+7. Todo: add offline MicroPython execution without faking CPython/Python behavior.
+   - The old JavaScript "offline playground" has been removed from the run path because it was not real MicroPython.
+   - App-side worker integration is in place and currently loads `public/micropython/micropython.mjs` plus `public/micropython/micropython.wasm`.
+   - Current bundled runtime is `@yeliulee/micropython-wasm@1.0.0`, an older Emscripten MicroPython build, copied locally so there is no runtime CDN dependency.
+   - Preferred long-term runtime path: build and bundle the official MicroPython WebAssembly port, run it inside a dedicated Web Worker, and only use it when no Pico is connected.
+   - The worker must have a hard timeout/termination path and clear terminal messages for unsupported hardware modules.
+8. Todo: replace the plain textarea with a Python-aware editor.
    - Preferred path: CodeMirror 6 with Python syntax highlighting.
    - Keep the UI compact; the editor should own the main right-side work area.
-8. Todo: add local editor drafts with persistent browser storage.
-9. Todo: split firmware into stable runtime loader plus student-owned `user_code.py`.
-10. Todo: extend BLE firmware protocol with safe file CRUD.
-11. Todo: add BLE upload/restart/reconnect flow.
-12. Todo: add guided MicroPython/UF2 installation.
-13. Todo: add lesson levels and template generation.
+9. Todo: add local editor drafts with persistent browser storage.
+10. Todo: split firmware into stable runtime loader plus student-owned `user_code.py`.
+11. Todo: extend BLE firmware protocol with safe file CRUD.
+12. Todo: add BLE upload/restart/reconnect flow.
+13. Todo: add guided MicroPython/UF2 installation.
+14. Todo: add lesson levels and template generation.
 
 ## Current Pico IDE layout
 

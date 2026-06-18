@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { TopBar } from '../components/TopBar';
 import { Modal } from '../components/Modal';
 import { Glyph } from '../assets/icons';
@@ -8,6 +8,7 @@ import { BUNDLED_MICROPYTHON, installBundledMicroPythonUf2, supportsBundledMicro
 import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
 import { REQUIRED_RUNTIME_FILES, type RuntimeFileCheck } from '../serial/runtimeFiles';
 import { developerModeStatus, SerialTransport, type SerialLogLevel } from '../serial/serialTransport';
+import { runOfflineMicroPython } from '../serial/offlineMicroPython';
 import { loadIdeDrafts, saveIdeDrafts, type IdeDraft } from '../lib/storage';
 import { useStore } from '../store/store';
 
@@ -556,8 +557,21 @@ export function PicoIdeScreen() {
 
     const repl = replRef.current;
     if (!repl) {
-      pushLine('info', 'Kører i offline playground. For rigtig MicroPython: forbind en Pico med USB.');
-      runLocalPythonPlayground(editorText, pushLine);
+      setBusy(true);
+      setTerminalFollow(true);
+      pushLine('info', 'Starter offline MicroPython. Forbind en Pico med USB for at køre på den rigtige Pico.');
+      try {
+        const result = await runOfflineMicroPython(editorText);
+        for (const issue of result.issues) {
+          const prefix = issue.line ? `Linje ${issue.line}: ` : '';
+          pushLine(issue.level === 'error' ? 'error' : 'warning', `${prefix}${issue.text}`);
+        }
+        if (result.output.trim()) pushLine('info', result.output);
+        if (result.error.trim()) pushLine(result.unavailable ? 'warning' : 'error', result.error);
+        if (result.ok && !result.output.trim() && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
+      } finally {
+        setBusy(false);
+      }
       return;
     }
 
@@ -615,6 +629,59 @@ export function PicoIdeScreen() {
   function clearTerminal() {
     setLines([]);
     setTerminalFollow(true);
+  }
+
+  function onEditorKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key !== 'Tab') return;
+    e.preventDefault();
+
+    const target = e.currentTarget;
+    const start = target.selectionStart;
+    const end = target.selectionEnd;
+    const indent = '    ';
+
+    if (e.shiftKey) {
+      const lineStart = editorText.lastIndexOf('\n', start - 1) + 1;
+      const selectedText = editorText.slice(lineStart, end);
+      let removedBeforeStart = 0;
+      let removedTotal = 0;
+      const outdented = selectedText.replace(/(^|\n)( {1,4}|\t)/g, (match, prefix, whitespace, offset) => {
+        const removed = whitespace.length;
+        if (lineStart + offset < start) removedBeforeStart += removed;
+        removedTotal += removed;
+        return prefix;
+      });
+
+      if (removedTotal === 0) return;
+      const nextText = editorText.slice(0, lineStart) + outdented + editorText.slice(end);
+      setEditorText(nextText);
+      window.requestAnimationFrame(() => {
+        target.selectionStart = Math.max(lineStart, start - removedBeforeStart);
+        target.selectionEnd = Math.max(target.selectionStart, end - removedTotal);
+      });
+      return;
+    }
+
+    if (start === end) {
+      const nextText = editorText.slice(0, start) + indent + editorText.slice(end);
+      setEditorText(nextText);
+      window.requestAnimationFrame(() => {
+        target.selectionStart = start + indent.length;
+        target.selectionEnd = start + indent.length;
+      });
+      return;
+    }
+
+    const lineStart = editorText.lastIndexOf('\n', start - 1) + 1;
+    const selectedText = editorText.slice(lineStart, end);
+    const indented = selectedText.replace(/^/gm, indent);
+    const addedLines = indented.split('\n').length;
+    const nextText = editorText.slice(0, lineStart) + indented + editorText.slice(end);
+    setEditorText(nextText);
+    window.requestAnimationFrame(() => {
+      target.selectionStart = start + indent.length;
+      target.selectionEnd = end + addedLines * indent.length;
+    });
   }
 
   return (
@@ -742,6 +809,7 @@ export function PicoIdeScreen() {
               className="ide-editor"
               value={editorText}
               onChange={(e) => setEditorText(e.target.value)}
+              onKeyDown={onEditorKeyDown}
               onScroll={(e) => setEditorScroll({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
               spellCheck={false}
             />
@@ -1041,185 +1109,4 @@ function buildFileRows(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeF
   }
 
   return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'da'));
-}
-
-function runLocalPythonPlayground(code: string, log: (level: SerialLogLevel, text: string) => void): void {
-  const env = new Map<string, string | number | boolean>();
-  const output: string[] = [];
-  const errors: string[] = [];
-  const lines = code.split(/\r?\n/).map((text, index) => ({ text, index }));
-
-  const executeSimpleLine = (rawLine: string, lineNumber: number): boolean => {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#')) return true;
-
-    const assignment = line.match(/^([A-Za-z_]\w*)\s*=\s*(.+)$/);
-    if (assignment) {
-      const value = evalBeginnerExpression(assignment[2], env);
-      if (value.ok) {
-        env.set(assignment[1], value.value);
-      } else {
-        errors.push(`Linje ${lineNumber}: ${value.error}`);
-      }
-      return true;
-    }
-
-    const printCall = line.match(/^print\((.*)\)$/);
-    if (printCall) {
-      const parts = splitPrintArgs(printCall[1]);
-      const values = parts.map((part) => evalBeginnerExpression(part, env));
-      const failed = values.find((value) => !value.ok);
-      if (failed && !failed.ok) {
-        errors.push(`Linje ${lineNumber}: ${failed.error}`);
-        return true;
-      }
-      output.push(values.map((value) => (value.ok ? String(value.value) : '')).join(' '));
-      return true;
-    }
-
-    errors.push(`Linje ${lineNumber}: Offline playground understøtter print(...), simple variabler og simple while-løkker.`);
-    return false;
-  };
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const raw = lines[i].text;
-    const line = raw.trim();
-    if (!line || line.startsWith('#')) continue;
-
-    const whileMatch = line.match(/^while\s+(.+)\s*:\s*$/);
-    if (!whileMatch) {
-      executeSimpleLine(raw, lines[i].index + 1);
-      continue;
-    }
-
-    const block: typeof lines = [];
-    let j = i + 1;
-    while (j < lines.length && (/^\s+/.test(lines[j].text) || !lines[j].text.trim())) {
-      if (lines[j].text.trim()) block.push(lines[j]);
-      j += 1;
-    }
-
-    if (block.length === 0) {
-      errors.push(`Linje ${lines[i].index + 1}: while-løkken mangler indrykket kode.`);
-      i = j - 1;
-      continue;
-    }
-
-    let guard = 0;
-    while (true) {
-      const condition = evalBeginnerCondition(whileMatch[1], env);
-      if (!condition.ok) {
-        errors.push(`Linje ${lines[i].index + 1}: ${condition.error}`);
-        break;
-      }
-      if (!condition.value) break;
-      for (const blockLine of block) {
-        executeSimpleLine(blockLine.text, blockLine.index + 1);
-        if (errors.length) break;
-      }
-      if (errors.length) break;
-      guard += 1;
-      if (guard > 1000) {
-        errors.push(`Linje ${lines[i].index + 1}: while-løkken stoppede efter 1000 gentagelser.`);
-        break;
-      }
-    }
-    i = j - 1;
-  }
-
-  if (output.length) log('info', output.join('\n'));
-  if (errors.length) log('error', errors.join('\n'));
-  if (!output.length && !errors.length) log('success', 'Offline kørsel færdig uden output.');
-}
-
-type EvalResult = { ok: true; value: string | number | boolean } | { ok: false; error: string };
-type ConditionResult = { ok: true; value: boolean } | { ok: false; error: string };
-
-function evalBeginnerCondition(raw: string, env: Map<string, string | number | boolean>): ConditionResult {
-  const expr = raw.trim();
-  const comparison = expr.match(/^(.+?)\s*(<=|>=|==|!=|<|>)\s*(.+)$/);
-  if (comparison) {
-    const left = evalBeginnerExpression(comparison[1], env);
-    const right = evalBeginnerExpression(comparison[3], env);
-    if (!left.ok) return { ok: false, error: left.error };
-    if (!right.ok) return { ok: false, error: right.error };
-
-    switch (comparison[2]) {
-      case '<':
-        return { ok: true, value: left.value < right.value };
-      case '<=':
-        return { ok: true, value: left.value <= right.value };
-      case '>':
-        return { ok: true, value: left.value > right.value };
-      case '>=':
-        return { ok: true, value: left.value >= right.value };
-      case '==':
-        return { ok: true, value: left.value === right.value };
-      case '!=':
-        return { ok: true, value: left.value !== right.value };
-      default:
-        return { ok: false, error: 'Betingelsen kunne ikke læses.' };
-    }
-  }
-
-  const value = evalBeginnerExpression(expr, env);
-  if (!value.ok) return { ok: false, error: value.error };
-  return { ok: true, value: Boolean(value.value) };
-}
-
-function evalBeginnerExpression(raw: string, env: Map<string, string | number | boolean>): EvalResult {
-  const expr = raw.trim();
-  if (!expr) return { ok: true, value: '' };
-
-  const quoted = expr.match(/^(['"])(.*)\1$/);
-  if (quoted) {
-    return { ok: true, value: quoted[2].replace(/\\n/g, '\n').replace(/\\t/g, '\t') };
-  }
-
-  if (/^-?\d+(\.\d+)?$/.test(expr)) {
-    return { ok: true, value: Number(expr) };
-  }
-
-  if (expr === 'True') return { ok: true, value: true };
-  if (expr === 'False') return { ok: true, value: false };
-
-  if (/^[A-Za-z_]\w*$/.test(expr)) {
-    return env.has(expr) ? { ok: true, value: env.get(expr) ?? '' } : { ok: false, error: `${expr} findes ikke endnu.` };
-  }
-
-  const numericExpr = expr.replace(/\b[A-Za-z_]\w*\b/g, (name) => {
-    const value = env.get(name);
-    return typeof value === 'number' ? String(value) : 'NaN';
-  });
-  if (/^[\d+\-*/(). %NaN]+$/.test(numericExpr) && !numericExpr.includes('NaN')) {
-    try {
-      const value = Function(`"use strict"; return (${numericExpr});`)();
-      return Number.isFinite(value) ? { ok: true, value } : { ok: false, error: 'Regnestykket kunne ikke beregnes.' };
-    } catch {
-      return { ok: false, error: 'Regnestykket kunne ikke læses.' };
-    }
-  }
-
-  return { ok: false, error: `Kan ikke køre "${expr}" offline endnu.` };
-}
-
-function splitPrintArgs(value: string): string[] {
-  const parts: string[] = [];
-  let current = '';
-  let quote: string | null = null;
-
-  for (const char of value) {
-    if ((char === '"' || char === "'") && current[current.length - 1] !== '\\') {
-      quote = quote === char ? null : quote ?? char;
-    }
-    if (char === ',' && !quote) {
-      parts.push(current);
-      current = '';
-    } else {
-      current += char;
-    }
-  }
-
-  parts.push(current);
-  return parts;
 }

@@ -9,6 +9,8 @@ const APP_SHELL = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/maskable-512.png',
+  './micropython/micropython.mjs',
+  './micropython/micropython.wasm',
 ];
 
 self.addEventListener('install', (event) => {
