@@ -572,8 +572,12 @@ export function PicoIdeScreen() {
       setTerminalFollow(true);
       pushLine('info', "Starter offline MicroPython. Forbind en Pico med USB for at køre rigtig micropython på Pico'en.");
       try {
+        let streamedOutput = false;
         const result = await runOfflineMicroPython(editorText, {
-          onOutput: (text) => pushLine('info', text),
+          onOutput: (text) => {
+            streamedOutput = true;
+            pushLine('info', text);
+          },
         });
         for (const issue of result.issues) {
           const prefix = issue.line ? `Linje ${issue.line}: ` : '';
@@ -581,7 +585,7 @@ export function PicoIdeScreen() {
         }
         if (result.output.trim()) pushLine('info', result.output);
         if (result.error.trim()) pushLine(result.unavailable ? 'warning' : 'error', result.error);
-        if (result.ok && !result.output.trim() && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
+        if (result.ok && !streamedOutput && !result.output.trim() && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
       } finally {
         setBusy(false);
       }
