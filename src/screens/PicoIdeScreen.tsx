@@ -70,6 +70,7 @@ export function PicoIdeScreen() {
   const [microPythonOpen, setMicroPythonOpen] = useState(false);
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [runningOnPico, setRunningOnPico] = useState(false);
+  const [runningOffline, setRunningOffline] = useState(false);
   const [terminalFollow, setTerminalFollow] = useState(true);
   const [lastComputerSave, setLastComputerSave] = useState<ComputerSave | null>(null);
   const [clearTerminalOnRun, setClearTerminalOnRun] = useState(false);
@@ -80,6 +81,7 @@ export function PicoIdeScreen() {
   const terminalRef = useRef<HTMLDivElement | null>(null);
   const runningRef = useRef(false);
   const terminalQuietRef = useRef(false);
+  const offlineAbortRef = useRef<AbortController | null>(null);
 
   const status = developerModeStatus();
   const bleMode = picoIdeOrigin === 'control' && !!active && isBleConnected();
@@ -568,12 +570,16 @@ export function PicoIdeScreen() {
 
     const repl = replRef.current;
     if (!repl) {
+      const abortController = new AbortController();
+      offlineAbortRef.current = abortController;
       setBusy(true);
+      setRunningOffline(true);
       setTerminalFollow(true);
       pushLine('info', "Starter offline MicroPython. Forbind en Pico med USB for at køre rigtig micropython på Pico'en.");
       try {
         let streamedOutput = false;
         const result = await runOfflineMicroPython(editorText, {
+          signal: abortController.signal,
           onOutput: (text) => {
             streamedOutput = true;
             pushLine('info', text);
@@ -587,6 +593,8 @@ export function PicoIdeScreen() {
         if (result.error.trim()) pushLine(result.unavailable ? 'warning' : 'error', result.error);
         if (result.ok && !streamedOutput && !result.output.trim() && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
       } finally {
+        offlineAbortRef.current = null;
+        setRunningOffline(false);
         setBusy(false);
       }
       return;
@@ -622,6 +630,13 @@ export function PicoIdeScreen() {
   }
 
   async function stopPicoCode() {
+    if (runningOffline) {
+      offlineAbortRef.current?.abort();
+      pushLine('warning', 'Stoppede offline MicroPython.');
+      setTerminalFollow(true);
+      return;
+    }
+
     const repl = replRef.current;
     if (!repl) return;
     try {
@@ -816,7 +831,7 @@ export function PicoIdeScreen() {
               <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={busy}>
                 Kør
               </button>
-              <button className="btn btn-outline" type="button" onClick={stopPicoCode} disabled={!connected || !runningOnPico}>
+              <button className="btn btn-outline" type="button" onClick={stopPicoCode} disabled={!runningOffline && (!connected || !runningOnPico)}>
                 Stop
               </button>
               <button className="btn btn-primary" type="button" onClick={saveFile} disabled={busy || !path.trim()}>

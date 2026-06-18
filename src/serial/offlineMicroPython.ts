@@ -43,6 +43,7 @@ interface WorkerStdoutMessage {
 interface OfflineMicroPythonOptions {
   timeoutMs?: number;
   onOutput?: (text: string) => void;
+  signal?: AbortSignal;
 }
 
 type WorkerMessage = WorkerResultMessage | WorkerReadyMessage | WorkerUnavailableMessage | WorkerStdoutMessage;
@@ -69,6 +70,7 @@ export async function runOfflineMicroPython(
 ): Promise<OfflineMicroPythonResult> {
   const timeoutMs = typeof options === 'number' ? options : options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const onOutput = typeof options === 'number' ? undefined : options.onOutput;
+  const signal = typeof options === 'number' ? undefined : options.signal;
   const issues = analyzeOfflineMicroPython(code);
   if (issues.some((issue) => issue.level === 'error')) {
     return {
@@ -86,13 +88,30 @@ export async function runOfflineMicroPython(
 
   return new Promise((resolve) => {
     let settled = false;
+    const abort = () => {
+      finish({
+        ok: false,
+        output: '',
+        error: '',
+        issues,
+        timedOut: false,
+        unavailable: false,
+      });
+    };
     const finish = (result: OfflineMicroPythonResult) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       worker.terminate();
       resolve(result);
     };
+
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener('abort', abort, { once: true });
 
     const timer = window.setTimeout(() => {
       finish({
