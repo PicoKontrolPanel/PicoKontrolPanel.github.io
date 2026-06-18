@@ -34,7 +34,18 @@ interface WorkerUnavailableMessage {
   error: string;
 }
 
-type WorkerMessage = WorkerResultMessage | WorkerReadyMessage | WorkerUnavailableMessage;
+interface WorkerStdoutMessage {
+  type: 'stdout';
+  id: number;
+  text: string;
+}
+
+interface OfflineMicroPythonOptions {
+  timeoutMs?: number;
+  onOutput?: (text: string) => void;
+}
+
+type WorkerMessage = WorkerResultMessage | WorkerReadyMessage | WorkerUnavailableMessage | WorkerStdoutMessage;
 
 const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_CODE_BYTES = 64 * 1024;
@@ -52,7 +63,12 @@ const HARDWARE_MODULES = new Set([
 
 let runId = 0;
 
-export async function runOfflineMicroPython(code: string, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<OfflineMicroPythonResult> {
+export async function runOfflineMicroPython(
+  code: string,
+  options: OfflineMicroPythonOptions | number = {},
+): Promise<OfflineMicroPythonResult> {
+  const timeoutMs = typeof options === 'number' ? options : options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const onOutput = typeof options === 'number' ? undefined : options.onOutput;
   const issues = analyzeOfflineMicroPython(code);
   if (issues.some((issue) => issue.level === 'error')) {
     return {
@@ -92,6 +108,11 @@ export async function runOfflineMicroPython(code: string, timeoutMs = DEFAULT_TI
     worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
       const message = event.data;
       if (message.id !== id || message.type === 'ready') return;
+
+      if (message.type === 'stdout') {
+        onOutput?.(message.text);
+        return;
+      }
 
       if (message.type === 'unavailable') {
         finish({

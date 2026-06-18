@@ -572,7 +572,9 @@ export function PicoIdeScreen() {
       setTerminalFollow(true);
       pushLine('info', "Starter offline MicroPython. Forbind en Pico med USB for at køre rigtig micropython på Pico'en.");
       try {
-        const result = await runOfflineMicroPython(editorText);
+        const result = await runOfflineMicroPython(editorText, {
+          onOutput: (text) => pushLine('info', text),
+        });
         for (const issue of result.issues) {
           const prefix = issue.line ? `Linje ${issue.line}: ` : '';
           pushLine(issue.level === 'error' ? 'error' : 'warning', `${prefix}${issue.text}`);

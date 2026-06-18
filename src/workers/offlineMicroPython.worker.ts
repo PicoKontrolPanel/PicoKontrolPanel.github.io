@@ -25,7 +25,7 @@ self.onmessage = async (event: MessageEvent<RunMessage>) => {
   try {
     const output: string[] = [];
     const errors: string[] = [];
-    const stdout: string[] = [];
+    let stdoutBuffer = '';
     const originalLog = console.log;
     const originalError = console.error;
     const originalWarn = console.warn;
@@ -36,11 +36,18 @@ self.onmessage = async (event: MessageEvent<RunMessage>) => {
 
     try {
       const mp = await loadMicroPython(message.runtimeUrl);
-      mp.MICROPYTHON_WRITE = (value: string) => stdout.push(value);
+      mp.MICROPYTHON_WRITE = (value: string) => {
+        stdoutBuffer += value;
+        const lines = stdoutBuffer.split(/\r?\n/);
+        stdoutBuffer = lines.pop() ?? '';
+        for (const line of lines) {
+          postStdout(message.id, line);
+        }
+      };
       const exitCode = mp.mp_js_do_str?.(message.code) ?? 1;
-      postResult(message.id, exitCode === 0, formatOutput(stdout, output), errors.join('\n'));
+      postResult(message.id, exitCode === 0, formatOutput(stdoutBuffer, output), errors.join('\n'));
     } catch (err) {
-      postResult(message.id, false, formatOutput(stdout, output), formatError(err, errors));
+      postResult(message.id, false, formatOutput(stdoutBuffer, output), formatError(err, errors));
     } finally {
       console.log = originalLog;
       console.error = originalError;
@@ -78,8 +85,8 @@ async function loadMicroPython(runtimeUrl: string): Promise<LegacyMicroPythonGlo
   return mp;
 }
 
-function formatOutput(stdout: string[], consoleOutput: string[]): string {
-  return [stdout.join(''), ...consoleOutput].filter((value) => value.length > 0).join('\n');
+function formatOutput(stdoutRemainder: string, consoleOutput: string[]): string {
+  return [stdoutRemainder, ...consoleOutput].filter((value) => value.length > 0).join('\n');
 }
 
 function waitForMicroPythonApi(mp: LegacyMicroPythonGlobal): Promise<void> {
@@ -112,6 +119,14 @@ function postResult(id: number, ok: boolean, output: string, error: string) {
     ok,
     output,
     error,
+  });
+}
+
+function postStdout(id: number, text: string) {
+  self.postMessage({
+    type: 'stdout',
+    id,
+    text,
   });
 }
 
