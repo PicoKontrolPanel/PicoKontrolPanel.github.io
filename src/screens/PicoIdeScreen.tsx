@@ -72,6 +72,7 @@ export function PicoIdeScreen() {
   const [runningOnPico, setRunningOnPico] = useState(false);
   const [terminalFollow, setTerminalFollow] = useState(true);
   const [lastComputerSave, setLastComputerSave] = useState<ComputerSave | null>(null);
+  const [clearTerminalOnRun, setClearTerminalOnRun] = useState(false);
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
   const fsRef = useRef<PicoFilesystem | null>(null);
@@ -557,6 +558,8 @@ export function PicoIdeScreen() {
   }
 
   async function runEditorCode() {
+    prepareTerminalForRun();
+
     if (bleMode) {
       await savePicoFile();
       pushLine('warning', 'Koden er gemt via Bluetooth. Automatisk genstart/genforbindelse er næste trin i planen.');
@@ -636,6 +639,13 @@ export function PicoIdeScreen() {
 
   function clearTerminal() {
     setLines([]);
+    setTerminalFollow(true);
+  }
+
+  function prepareTerminalForRun() {
+    if (clearTerminalOnRun) {
+      setLines([]);
+    }
     setTerminalFollow(true);
   }
 
@@ -839,9 +849,20 @@ export function PicoIdeScreen() {
         <section className="ide-panel ide-terminal-panel">
           <div className="ide-panel-head">
             <h2>Terminal</h2>
-            <button className="btn btn-outline" type="button" onClick={clearTerminal} disabled={lines.length === 0}>
-              Ryd
-            </button>
+            <div className="ide-mini-actions">
+              <button
+                className={`btn btn-outline ide-terminal-toggle ${clearTerminalOnRun ? 'active' : ''}`}
+                type="button"
+                onClick={() => setClearTerminalOnRun((value) => !value)}
+                aria-pressed={clearTerminalOnRun}
+                title={clearTerminalOnRun ? 'Terminalen ryddes, hver gang du trykker Kør' : 'Terminalen beholder tekst, når du trykker Kør'}
+              >
+                Ryd ved Kør
+              </button>
+              <button className="btn btn-outline" type="button" onClick={clearTerminal} disabled={lines.length === 0}>
+                Ryd
+              </button>
+            </div>
           </div>
           <div className="ide-terminal" aria-live="polite" ref={terminalRef} onScroll={onTerminalScroll}>
             {lines.length === 0 ? (

@@ -1282,6 +1282,12 @@ button:disabled {
   padding-inline: 0;
 }
 
+.ide-terminal-toggle.active {
+  background: var(--red);
+  color: var(--white);
+  border-color: var(--red);
+}
+
 .ide-runtime {
   display: grid;
   gap: 8px;
