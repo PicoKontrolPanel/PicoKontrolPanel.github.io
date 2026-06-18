@@ -45,7 +45,7 @@ interface Waiter {
 }
 
 const HANDSHAKE_TIMEOUT = 6000;
-const CONTROL_GAP_MS = 30;
+const CONTROL_GAP_MS = 15;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,7 +68,9 @@ export class PicoProtocol {
   private lineBuffer: string[] = [];
   private lineResolve: ((lines: string[]) => void) | null = null;
 
-  private controlQueue: Promise<void> = Promise.resolve();
+  private controlPumpActive = false;
+  private pendingButtons: string[] = [];
+  private pendingSliders = new Map<string, string>();
   private expectingDisconnect = false;
   private busy = false;
 
@@ -96,6 +98,12 @@ export class PicoProtocol {
 
   setBusy(busy: boolean): void {
     this.busy = busy;
+    if (busy) {
+      this.pendingButtons = [];
+      this.pendingSliders.clear();
+      return;
+    }
+    this.pumpControls();
   }
 
   private log(level: LogLevel, message: string): void {
@@ -439,26 +447,56 @@ export class PicoProtocol {
 
   // ---- control commands (play mode) ------------------------------------
   enqueueButton(name: string): void {
-    this.enqueueControl(`button,${name}`);
+    if (this.busy) return;
+    this.pendingButtons.push(`button,${name}`);
+    this.pumpControls();
   }
 
   enqueueSlider(name: string, value: number): void {
-    this.enqueueControl(`slider,${name}:${value}`);
+    if (this.busy) return;
+    this.pendingSliders.set(name, `slider,${name}:${value}`);
+    this.pumpControls();
   }
 
-  private enqueueControl(line: string): void {
-    if (this.busy) return;
-    this.controlQueue = this.controlQueue.then(async () => {
-      if (this.busy || !this.transport.connected) return;
-      try {
+  private pumpControls(): void {
+    if (this.controlPumpActive || this.busy || !this.transport.connected) return;
+    this.controlPumpActive = true;
+    void this.drainControls();
+  }
+
+  private async drainControls(): Promise<void> {
+    try {
+      while (!this.busy && this.transport.connected) {
+        const line = this.nextControlLine();
+        if (!line) break;
         await this.transport.writeLine(line);
         this.log('info', `tx: ${line}`);
         await delay(CONTROL_GAP_MS);
-      } catch (err) {
-        this.log('error', err instanceof Error ? err.message : 'Kunne ikke sende kommando.');
-        this.handleDisconnect();
       }
-    });
+    } catch (err) {
+      this.log('error', err instanceof Error ? err.message : 'Kunne ikke sende kommando.');
+      this.handleDisconnect();
+    } finally {
+      this.controlPumpActive = false;
+      if (!this.busy && this.transport.connected && this.hasPendingControls()) {
+        this.pumpControls();
+      }
+    }
+  }
+
+  private nextControlLine(): string | null {
+    const button = this.pendingButtons.shift();
+    if (button) return button;
+
+    const nextSlider = this.pendingSliders.entries().next();
+    if (nextSlider.done) return null;
+    const [name, line] = nextSlider.value;
+    this.pendingSliders.delete(name);
+    return line;
+  }
+
+  private hasPendingControls(): boolean {
+    return this.pendingButtons.length > 0 || this.pendingSliders.size > 0;
   }
 
   // ---- teardown ---------------------------------------------------------
