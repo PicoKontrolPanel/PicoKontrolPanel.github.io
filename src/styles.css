@@ -1552,6 +1552,18 @@ button:disabled {
   gap: 12px;
 }
 
+.ide-install-group {
+  display: grid;
+  gap: 8px;
+}
+
+.ide-install-group h3 {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
 .ide-install-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

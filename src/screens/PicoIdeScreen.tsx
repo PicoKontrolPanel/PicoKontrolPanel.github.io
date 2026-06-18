@@ -281,9 +281,10 @@ export function PicoIdeScreen() {
             checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
           }
         }
-        setRuntimeChecks(checks);
-        const missing = checks.filter((check) => check.status === 'missing').length;
-        const outdated = checks.filter((check) => check.status === 'outdated').length;
+        const normalizedChecks = normalizeRuntimeChecks(checks);
+        setRuntimeChecks(normalizedChecks);
+        const missing = normalizedChecks.filter((check) => check.status === 'missing').length;
+        const outdated = normalizedChecks.filter((check) => check.status === 'outdated').length;
         pushLine(missing || outdated ? 'warning' : 'success', `Runtime check: ${missing} mangler, ${outdated} skal opdateres.`);
       } catch (err) {
         pushLine('error', err instanceof Error ? err.message : 'BLE runtime check fejlede.');
@@ -300,9 +301,10 @@ export function PicoIdeScreen() {
     setBusy(true);
     try {
       const checks = await withQuietTerminal(() => collectRuntimeChecks(fs));
-      setRuntimeChecks(checks);
-      const missing = checks.filter((check) => check.status === 'missing').length;
-      const outdated = checks.filter((check) => check.status === 'outdated').length;
+      const normalizedChecks = normalizeRuntimeChecks(checks);
+      setRuntimeChecks(normalizedChecks);
+      const missing = normalizedChecks.filter((check) => check.status === 'missing').length;
+      const outdated = normalizedChecks.filter((check) => check.status === 'outdated').length;
       if (missing || outdated) {
         pushLine('warning', `Runtime check: ${missing} mangler, ${outdated} skal opdateres.`);
       } else {
@@ -327,7 +329,7 @@ export function PicoIdeScreen() {
         checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
       }
     }
-    return checks;
+    return normalizeRuntimeChecks(checks);
   }
 
   async function readFile(nextPath = path) {
@@ -520,8 +522,14 @@ export function PicoIdeScreen() {
     const checks = runtimeChecks.length > 0 ? runtimeChecks : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
     setRuntimeChecks(checks);
     const nextSelection: Record<string, boolean> = {};
+    const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
+    const programToInstall = hasActiveProgram ? undefined : checks.find((check) => check.kind === 'program' && check.status !== 'ok');
     checks.forEach((check) => {
-      nextSelection[check.path] = check.status !== 'ok';
+      if (check.kind === 'program') {
+        nextSelection[check.id] = check.id === programToInstall?.id;
+      } else {
+        nextSelection[check.id] = check.status !== 'ok';
+      }
     });
     setInstallSelection(nextSelection);
     setInstallOpen(true);
@@ -533,7 +541,7 @@ export function PicoIdeScreen() {
         runtimeChecks.length > 0
           ? runtimeChecks
           : REQUIRED_RUNTIME_FILES.map((file) => ({ ...file, status: 'unknown', detail: 'Ikke tjekket' }) as RuntimeFileCheck);
-      const targets = checks.filter((check) => installSelection[check.path]);
+      const targets = checks.filter((check) => installSelection[check.id]);
       if (targets.length === 0) {
         pushLine('info', 'Ingen filer valgt til installation.');
         return;
@@ -556,6 +564,23 @@ export function PicoIdeScreen() {
       await listFiles();
       await checkRuntimeFiles();
       setInstallOpen(false);
+    });
+  }
+
+  function updateInstallSelection(file: RuntimeFileCheck, checked: boolean) {
+    setInstallSelection((current) => {
+      if (file.kind !== 'program') {
+        return { ...current, [file.id]: checked };
+      }
+
+      const next = { ...current };
+      for (const item of runtimeChecks) {
+        if (item.kind === 'program') {
+          next[item.id] = false;
+        }
+      }
+      next[file.id] = checked;
+      return next;
     });
   }
 
@@ -661,6 +686,35 @@ export function PicoIdeScreen() {
   function clearTerminal() {
     setLines([]);
     setTerminalFollow(true);
+  }
+
+  function renderInstallGroup(title: string, items: RuntimeFileCheck[]) {
+    if (items.length === 0) return null;
+    return (
+      <div className="ide-install-group">
+        <h3>{title}</h3>
+        {items.map((file) => (
+          <label className="ide-install-row" key={file.id}>
+            <input
+              type={file.kind === 'program' ? 'radio' : 'checkbox'}
+              name={file.kind === 'program' ? 'install-program' : undefined}
+              checked={!!installSelection[file.id]}
+              onChange={(e) => updateInstallSelection(file, e.target.checked)}
+            />
+            <span>
+              <strong>
+                {file.label}
+                <em className={`ide-install-status status-${file.status}`}>{runtimeStatusLabel(file.status)}</em>
+              </strong>
+              <small>
+                {file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {file.detail}
+              </small>
+              <small>{file.description}</small>
+            </span>
+          </label>
+        ))}
+      </div>
+    );
   }
 
   function prepareTerminalForRun() {
@@ -806,7 +860,7 @@ export function PicoIdeScreen() {
             <div className="ide-runtime-list">
               {runtimeChecks.length > 0 && (
                 runtimeChecks.map((check) => (
-                  <span className={`runtime-${check.status}`} key={check.path}>
+                  <span className={`runtime-${check.status}`} key={check.id}>
                     {check.label}: {check.detail}
                   </span>
                 ))
@@ -930,23 +984,8 @@ export function PicoIdeScreen() {
       {installOpen && (
         <Modal title="Installer filer" onClose={() => setInstallOpen(false)}>
           <div className="ide-install-list">
-            {runtimeChecks.map((file) => (
-              <label className="ide-install-row" key={file.path}>
-                <input
-                  type="checkbox"
-                  checked={!!installSelection[file.path]}
-                  onChange={(e) => setInstallSelection((current) => ({ ...current, [file.path]: e.target.checked }))}
-                />
-                <span>
-                  <strong>
-                    {file.label}
-                    <em className={`ide-install-status status-${file.status}`}>{runtimeStatusLabel(file.status)}</em>
-                  </strong>
-                  <small>{file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {file.detail}</small>
-                  <small>{file.description}</small>
-                </span>
-              </label>
-            ))}
+            {renderInstallGroup('Startprogrammer', runtimeChecks.filter((file) => file.kind === 'program'))}
+            {renderInstallGroup('Biblioteker', runtimeChecks.filter((file) => file.kind === 'library'))}
             {renderTaskProgress()}
             <button className="btn btn-primary" type="button" onClick={performInstallRuntimeFiles} disabled={busy}>
               Installer valgte
@@ -1048,6 +1087,20 @@ function normalizeImportedFileName(value: string): string {
 
 function normalizeRuntimeContent(value: string): string {
   return value.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trimEnd();
+}
+
+function normalizeRuntimeChecks(checks: RuntimeFileCheck[]): RuntimeFileCheck[] {
+  const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
+  if (!hasActiveProgram) return checks;
+
+  return checks.map((check) => {
+    if (check.kind !== 'program' || check.status === 'ok') return check;
+    return {
+      ...check,
+      status: 'unknown',
+      detail: 'Kan installeres som alternativ',
+    };
+  });
 }
 
 function displayPicoPath(value: string): string {

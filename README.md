@@ -58,15 +58,19 @@ implemented in `src/ble/`.
 
 `firmware/` holds the full-protocol Pico W firmware:
 
-- `firmware/BLEPeripheral.py` — complete protocol (handshake, reliable stream,
+- `firmware/OnboardLED/main.py` - a minimal LED-only program that declares a few
+  controls and drives only the onboard LED.
+- `firmware/TankControl/main.py` - a two-motor robot-car program with two
+  `-100..100` middle-recenter sliders for tank control.
+- `firmware/BLEPeripheral.py` - complete protocol (handshake, reliable stream,
   ownership/permission, layout request/update, on-device persistence).
-- `firmware/main.py` — a minimal LED-only driver that declares a few controls
-  (`LED ON`, `LED OFF`, `BLINK`, and a `BLINK FART` slider for blink speed) and drives
-  only the onboard LED.
+- `firmware/PicoRobotics.py` and `firmware/hcsr04.py` - optional classroom
+  hardware libraries.
 
-Flash both files to the Pico W. On first connect the device is **unowned**, so the app
-runs the Create flow; after that it streams its control-panel layout. Settings and
-layout persist on-device in `DeviceSettings.txt` / `Layout.txt`.
+Install one program variant as `/main.py` plus the libraries needed by that project.
+On first connect the device is **unowned**, so the app runs the Create flow; after
+that it streams its control-panel layout. Settings and layout persist on-device in
+`DeviceSettings.txt` / `Layout.txt`.
 
 ## Testing checklist
 

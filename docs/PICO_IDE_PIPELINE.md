@@ -46,7 +46,7 @@
    - The old `Læs` button is intentionally removed; clicking a file loads it, and `Opdater` reloads the file list.
 5. In progress: add safe installer for runtime files and library bundles.
    - The USB panel now checks required runtime files and can install missing/outdated files.
-   - Installable files are sourced from the root `firmware/` folder and currently include `main.py`, `BLEPeripheral.py`, `PicoRobotics.py`, and `hcsr04.py`.
+   - Installable files are sourced from `firmware/`: program variants such as `OnboardLED/main.py` and `TankControl/main.py` install to `/main.py`, followed by shared libraries such as `BLEPeripheral.py`, `PicoRobotics.py`, and `hcsr04.py`.
    - Installer writes through a temporary file, verifies it, keeps a `.bak`, then promotes the file.
 6. In progress: add code execution controls.
    - `Kør` executes the current editor contents through raw REPL.
@@ -87,7 +87,7 @@
 9. To compete with Thonny for classroom use, the app needs: board detection, firmware UF2 guidance, robust file sync, streaming terminal, stop/restart, traceback display, syntax highlighting, import/export, safe runtime install, and recovery mode.
 10. File panel actions should use compact icons on narrow panels.
 11. Installer should show a choice modal grouped by installable type, not silently install every bundled file.
-12. Current installable files are sourced from root-level `.py` files in `firmware/`; these are copied to the Pico filesystem root so MicroPython imports work simply for children.
+12. Current installable files are grouped into program variants and libraries. Program variants are shown first and install as `/main.py`; libraries are shown after and copy to the Pico filesystem root so MicroPython imports work simply for children.
 13. Fresh Pico workflow still needs guided board selection and UF2 download/copy instructions before Web Serial can work.
 
 ## Platform posture

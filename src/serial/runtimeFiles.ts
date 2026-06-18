@@ -1,9 +1,12 @@
 import blePeripheralSource from '../../firmware/BLEPeripheral.py?raw';
 import hcsr04Source from '../../firmware/hcsr04.py?raw';
-import mainSource from '../../firmware/main.py?raw';
+import neopixelSource from '../../firmware/neopixel.py?raw';
+import onboardLedMainSource from '../../firmware/OnboardLED/main.py?raw';
 import picoRoboticsSource from '../../firmware/PicoRobotics.py?raw';
+import tankControlMainSource from '../../firmware/TankControl/main.py?raw';
 
 export interface RuntimeFile {
+  id: string;
   path: string;
   label: string;
   description: string;
@@ -20,20 +23,31 @@ export interface RuntimeFileCheck extends RuntimeFile {
 
 export const REQUIRED_RUNTIME_FILES: RuntimeFile[] = [
   {
+    id: 'program:onboard-led',
+    path: '/main.py',
+    label: 'OnboardLED/main.py',
+    description: 'Startprogram til den indbyggede LED paa Pico W.',
+    kind: 'program',
+    content: onboardLedMainSource,
+  },
+  {
+    id: 'program:tank-control',
+    path: '/main.py',
+    label: 'TankControl/main.py',
+    description: 'Startprogram til robotbil med to motor-slidere.',
+    kind: 'program',
+    content: tankControlMainSource,
+  },
+  {
+    id: 'library:ble-peripheral',
     path: '/BLEPeripheral.py',
     label: 'BLEPeripheral.py',
-    description: 'Bluetooth-biblioteket der får Picoen til at tale med appen.',
+    description: 'Bluetooth-biblioteket der faar Picoen til at tale med appen.',
     kind: 'library',
     content: blePeripheralSource,
   },
   {
-    path: '/main.py',
-    label: 'main.py',
-    description: 'Startprogrammet der kører når Picoen tændes.',
-    kind: 'program',
-    content: mainSource,
-  },
-  {
+    id: 'library:pico-robotics',
     path: '/PicoRobotics.py',
     label: 'PicoRobotics.py',
     description: 'Bibliotek til Kitronik Pico Robotics Board.',
@@ -41,10 +55,19 @@ export const REQUIRED_RUNTIME_FILES: RuntimeFile[] = [
     content: picoRoboticsSource,
   },
   {
+    id: 'library:hcsr04',
     path: '/hcsr04.py',
     label: 'hcsr04.py',
     description: 'Bibliotek til HC-SR04 ultralyds-afstandssensor.',
     kind: 'library',
     content: hcsr04Source,
+  },
+  {
+    id: 'library:neopixel',
+    path: '/neopixel.py',
+    label: 'neopixel.py',
+    description: 'Bibliotek til NeoPixel LED-strips og LED-ringe.',
+    kind: 'library',
+    content: neopixelSource,
   },
 ];
