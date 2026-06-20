@@ -65,6 +65,7 @@ export function PicoIdeScreen() {
   const [lines, setLines] = useState<TerminalLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [files, setFiles] = useState<PicoFileEntry[]>([]);
+  const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
   const [localFiles, setLocalFiles] = useState<IdeDraft[]>(() => ensureDefaultDraft(loadIdeDrafts()));
   const [path, setPath] = useState(DEFAULT_CODE_PATH);
   const [editorText, setEditorText] = useState(
@@ -297,7 +298,7 @@ export function PicoIdeScreen() {
       try {
         const next = await bleListFiles();
         setFiles(next);
-        pushLine('success', `Læste ${next.length} filer fra Pico via Bluetooth.`);
+        pushLine('success', `Indlæste ${next.length} filer fra Pico via Bluetooth.`);
       } catch (err) {
         pushLine('error', err instanceof Error ? err.message : 'BLE filhandling fejlede.');
       } finally {
@@ -314,7 +315,7 @@ export function PicoIdeScreen() {
     try {
       const next = await withQuietTerminal(() => fs.list('/'));
       setFiles(next);
-      pushLine('success', `Læste ${next.length} filer fra Pico.`);
+      pushLine('success', `Indlæste ${next.length} filer fra Pico.`);
     } catch (err) {
       pushLine('error', err instanceof Error ? err.message : 'USB filhandling fejlede.');
     } finally {
@@ -388,29 +389,37 @@ export function PicoIdeScreen() {
   }
 
   async function readFile(nextPath = path) {
+    setLoadingFilePath(nextPath);
     if (bleMode) {
       setBusy(true);
+      setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
       try {
         const text = await bleReadText(nextPath);
         setPath(nextPath);
         setEditorText(text);
         markPicoSnapshot(nextPath, text);
-        pushLine('success', `Læste ${displayPicoPath(nextPath)} via Bluetooth.`);
+        finishTaskProgress('Fil indlæst');
+        pushLine('success', `Indlæste ${displayPicoPath(nextPath)} via Bluetooth.`);
       } catch (err) {
+        setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
       } finally {
+        setLoadingFilePath(null);
         setBusy(false);
       }
       return;
     }
 
     await withFs(async (fs) => {
+      setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
       const text = await fs.readText(nextPath);
       setPath(nextPath);
       setEditorText(text);
       markPicoSnapshot(nextPath, text);
-      pushLine('success', `Læste ${nextPath}.`);
+      finishTaskProgress('Fil indlæst');
+      pushLine('success', `Indlæste ${nextPath}.`);
     });
+    setLoadingFilePath(null);
   }
 
   function saveFile() {
@@ -1110,6 +1119,12 @@ export function PicoIdeScreen() {
               onScroll={(e) => setEditorScroll({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
               spellCheck={false}
             />
+            {loadingFilePath && (
+              <div className="ide-editor-loading" role="status" aria-live="polite">
+                <span className="spinner" aria-hidden="true" />
+                <strong>Indlæser {displayPicoPath(loadingFilePath)}...</strong>
+              </div>
+            )}
           </div>
         </section>
 

@@ -701,8 +701,8 @@ class BLEPeripheral:
         elif msg.startswith("fs_list"):
             self._handle_fs_list(msg)
 
-        elif msg.startswith("fs_read,"):
-            self._handle_fs_read(msg)
+        elif msg.startswith("fs_read_page,"):
+            self._handle_fs_read_page(msg)
 
         elif msg.startswith("fs_write_begin,"):
             self._handle_fs_write_begin(msg)
@@ -1026,25 +1026,34 @@ class BLEPeripheral:
         except Exception as e:
             self._send_reliable_stream(["ERR: fs_list failed {}".format(e), "__END__"])
 
-    def _handle_fs_read(self, msg):
-        path = self._clean_fs_path(msg.split(",", 1)[1])
+    def _handle_fs_read_page(self, msg):
+        parts = msg.split(",", 3)
+        if len(parts) < 4:
+            self._send_reliable_stream(["ERR: Bad fs_read_page", "__END__"])
+            return
+        path = self._clean_fs_path(parts[1])
         if not path:
             self._send_reliable_stream(["ERR: Bad path", "__END__"])
             return
-        lines = []
         try:
-            st = os.stat(self._path_for_open(path))
-            lines.append("fs_file,{},{}".format(path, st[6]))
-            with open(self._path_for_open(path), "rb") as f:
-                while True:
-                    chunk = f.read(80)
-                    if not chunk:
-                        break
-                    lines.append("fs_data,{}".format(ubinascii.hexlify(chunk).decode()))
-            lines.append("__END__")
-            self._send_reliable_stream(lines)
+            offset = max(0, int(parts[2]))
+            length = max(1, min(128, int(parts[3])))
+        except:
+            self._send_reliable_stream(["ERR: Bad fs_read_page range", "__END__"])
+            return
+        try:
+            open_path = self._path_for_open(path)
+            st = os.stat(open_path)
+            with open(open_path, "rb") as f:
+                f.seek(offset)
+                chunk = f.read(length)
+            hex_data = ubinascii.hexlify(chunk).decode() if chunk else ""
+            self._send_reliable_stream([
+                "fs_page,{},{},{},{}".format(path, offset, st[6], hex_data),
+                "__END__",
+            ])
         except Exception as e:
-            self._send_reliable_stream(["ERR: fs_read failed {}".format(e), "__END__"])
+            self._send_reliable_stream(["ERR: fs_read_page failed {}".format(e), "__END__"])
 
     def _handle_fs_write_begin(self, msg):
         if not self._session_can_edit:

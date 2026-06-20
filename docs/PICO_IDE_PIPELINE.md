@@ -78,12 +78,14 @@ predictable classroom use over clever synchronization.
 3. Add BLE protocol capabilities.
    - Add a `fs_capabilities` command returning support flags such as
      `rename`, `safe_write`, `main_write`, and protocol/runtime version.
-   - Use this so the web app can support old firmware gracefully.
+   - Use this for diagnostics and clear errors during development, not for
+     old-firmware compatibility before release.
 4. Add real BLE rename.
    - Firmware command: `fs_rename,<from>,<to>`.
    - App method: `renameFile(from, to)`.
-   - Use it instead of copy-new/delete-old when available.
-   - Keep copy/delete fallback only for non-protected files on old firmware.
+   - Use it instead of copy-new/delete-old.
+   - No old-firmware fallback is needed before release; test devices should use
+     the current bundled runtime.
 5. Add guarded BLE safe-write for `/main.py`.
    - Keep `/BLEPeripheral.py` protected over BLE.
    - Allow `/main.py` only through a special safe-write command or explicit
@@ -123,6 +125,32 @@ predictable classroom use over clever synchronization.
   reconnect flow available.
 - The bundled `BLEPeripheral.py` now permits safe BLE writes to `/main.py` while
   keeping `/BLEPeripheral.py` protected over BLE.
+
+## Implemented connection-loss behavior
+
+- The BLE transport listens for the browser `gattserverdisconnected` event.
+- Unexpected BLE loss while in the control panel, connection/create flow, or
+  Pico IDE opened from the control panel sends the user back to the dashboard.
+- The dashboard shows a connection-lost modal with a reconnect action for the
+  same known device.
+- During an intentional `/main.py` apply/restart, the first disconnect is treated
+  as expected. If automatic reconnect fails, the app still returns to the
+  dashboard and shows the reconnect path.
+- The BLE transport disconnect callback is idempotent so duplicate browser/manual
+  disconnect notifications do not produce duplicate state transitions.
+
+## Implemented BLE file-read behavior
+
+- BLE file reads prefer a paged `fs_read_page` protocol command.
+- Each page reads a small byte range from the Pico and sends only that page back
+  to the browser.
+- This avoids building one large `fs_read` response in Pico RAM, which could
+  fail for larger library files such as `BLEPeripheral.py`, `PicoRobotics.py`,
+  and `neopixel.py`.
+- Paged reads are the only supported BLE file-read path. Because the project is
+  unreleased, installed test devices should be updated to the current
+  `BLEPeripheral.py` before BLE IDE testing.
+- The Pico IDE shows editor-level loading feedback while a file is being read.
 
 ## Manual test path for main.py reconnect
 

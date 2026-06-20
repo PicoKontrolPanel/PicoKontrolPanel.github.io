@@ -558,6 +558,9 @@ export const useStore = create<AppState>((set, get) => {
       for (let wait = 0; wait < 12 && protocol?.connected; wait += 1) {
         await delay(250);
       }
+      if (!protocol?.connected) {
+        suppressNextDisconnect = false;
+      }
 
       for (let attempt = 1; attempt <= 8; attempt += 1) {
         await delay(attempt === 1 ? 1200 : 850);
@@ -582,6 +585,7 @@ export const useStore = create<AppState>((set, get) => {
       }
 
       pushToast('Kunne ikke genforbinde automatisk. Vælg Picoen igen.');
+      suppressNextDisconnect = false;
       set({
         screen: 'dashboard',
         active: null,

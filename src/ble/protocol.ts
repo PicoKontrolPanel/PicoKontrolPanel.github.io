@@ -46,6 +46,7 @@ interface Waiter {
 
 const HANDSHAKE_TIMEOUT = 6000;
 const CONTROL_GAP_MS = 15;
+const FILE_READ_PAGE_SIZE = 96;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -406,14 +407,39 @@ export class PicoProtocol {
   }
 
   async readText(path: string): Promise<string> {
-    const lines = await this.collectLines(`fs_read,${protocolField(path)}`, HANDSHAKE_TIMEOUT * 5, 'fs_read');
-    const error = lines.find((line) => line.startsWith('ERR'));
-    if (error) throw new Error(error);
-    const hex = lines
-      .filter((line) => line.startsWith('fs_data,'))
-      .map((line) => line.slice('fs_data,'.length))
-      .join('');
-    return new TextDecoder().decode(hexToBytes(hex));
+    return this.readTextPaged(path);
+  }
+
+  private async readTextPaged(path: string): Promise<string> {
+    let offset = 0;
+    let total: number | null = null;
+    let hex = '';
+
+    for (let page = 0; page < 512; page += 1) {
+      const lines = await this.collectLines(`fs_read_page,${protocolField(path)},${offset},${FILE_READ_PAGE_SIZE}`, HANDSHAKE_TIMEOUT * 2, 'fs_read_page');
+      const error = lines.find((line) => line.startsWith('ERR'));
+      if (error) throw new Error(error);
+
+      const pageLine = lines.find((line) => line.startsWith('fs_page,'));
+      if (!pageLine) throw new Error('ERR: fs_read_page missing data');
+
+      const [, , offsetRaw, totalRaw, hexChunk = ''] = pageLine.split(',', 5);
+      const pageOffset = parseInt(offsetRaw ?? '', 10);
+      const nextTotal = parseInt(totalRaw ?? '', 10);
+      if (!Number.isFinite(pageOffset) || pageOffset !== offset || !Number.isFinite(nextTotal)) {
+        throw new Error('ERR: fs_read_page invalid data');
+      }
+
+      total = nextTotal;
+      hex += hexChunk;
+      offset += Math.floor(hexChunk.length / 2);
+
+      if (offset >= total || hexChunk.length === 0) {
+        return new TextDecoder().decode(hexToBytes(hex));
+      }
+    }
+
+    throw new Error('ERR: fs_read_page too many pages');
   }
 
   async writeText(path: string, content: string, onProgress?: FileWriteProgress): Promise<void> {

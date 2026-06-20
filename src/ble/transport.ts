@@ -53,6 +53,7 @@ export class BleTransport {
   private notifyChar: BluetoothRemoteGATTCharacteristic | null = null;
   private buffer = '';
   private writeQueue: Promise<void> = Promise.resolve();
+  private disconnectNotified = false;
 
   onLine: (line: string) => void = () => {};
   onDisconnect: () => void = () => {};
@@ -62,8 +63,13 @@ export class BleTransport {
   }
 
   async connect(device: BluetoothDevice): Promise<void> {
+    if (this.device && this.device !== device) {
+      this.device.removeEventListener('gattserverdisconnected', this.handleDisconnected);
+    }
     this.device = device;
     this.buffer = '';
+    this.disconnectNotified = false;
+    device.removeEventListener('gattserverdisconnected', this.handleDisconnected);
     device.addEventListener('gattserverdisconnected', this.handleDisconnected);
 
     const server = await device.gatt?.connect();
@@ -93,6 +99,9 @@ export class BleTransport {
   };
 
   private handleDisconnected = (): void => {
+    if (this.disconnectNotified) return;
+    this.disconnectNotified = true;
+    this.device?.removeEventListener('gattserverdisconnected', this.handleDisconnected);
     this.writeChar = null;
     this.notifyChar = null;
     this.onDisconnect();

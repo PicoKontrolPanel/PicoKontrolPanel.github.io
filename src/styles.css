@@ -1521,6 +1521,26 @@ button:disabled {
   overflow: hidden;
 }
 
+.ide-editor-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  align-content: center;
+  background: rgba(245, 245, 245, 0.76);
+  color: var(--red);
+  text-align: center;
+  font-weight: 900;
+}
+
+.ide-editor-loading .spinner {
+  width: 36px;
+  height: 36px;
+  border-width: 4px;
+}
+
 .ide-line-numbers {
   position: absolute;
   z-index: 2;
