@@ -924,10 +924,10 @@ export function PicoIdeScreen() {
       {screenTooSmall ? (
         <div className="ide-size-gate" role="dialog" aria-modal="true" aria-labelledby="ide-size-title">
           <div className="ide-size-gate-panel">
-            <h2 id="ide-size-title">Brug en laptop til Kodevaerkstedet</h2>
+            <h2 id="ide-size-title">Brug en bærbar for at bruge Kodeværkstedet</h2>
             <p>
-              Pico IDE'et har filvindue, editor, terminal og Pico-forbindelse paa samme tid. Skaermen er for smal her, saa aabn Kodevaerkstedet
-              paa en laptop eller en storre skaerm.
+              Denne skærmen er for lille, så du skal åbne Kodevaerkstedet
+              på en bærbar eller en større skærm.
             </p>
           </div>
         </div>
