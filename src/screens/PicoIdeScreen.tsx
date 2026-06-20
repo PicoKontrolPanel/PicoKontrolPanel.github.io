@@ -23,6 +23,7 @@ interface TaskProgress {
 }
 
 interface IdeFileRow {
+  kind: 'file';
   name: string;
   path: string;
   type: 'file' | 'dir' | 'unknown';
@@ -31,6 +32,14 @@ interface IdeFileRow {
   uploaded: boolean;
 }
 
+interface IdeFileSeparator {
+  kind: 'separator';
+  id: string;
+  label: string;
+}
+
+type IdeFileListItem = IdeFileRow | IdeFileSeparator;
+
 interface ComputerSave {
   path: string;
   content: string;
@@ -38,6 +47,7 @@ interface ComputerSave {
 
 const DEFAULT_CODE_PATH = '/min_kode.py';
 const DEFAULT_CODE = "print('Hej fra Pico Kontrol Panel')\n";
+const IDE_MIN_WIDTH = 980;
 
 export function PicoIdeScreen() {
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
@@ -63,6 +73,8 @@ export function PicoIdeScreen() {
   const [runtimeChecks, setRuntimeChecks] = useState<RuntimeFileCheck[]>([]);
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFileName, setNewFileName] = useState('');
+  const [renameFile, setRenameFile] = useState<IdeFileRow | null>(null);
+  const [renameFileName, setRenameFileName] = useState('');
   const [saveOpen, setSaveOpen] = useState(false);
   const [taskProgress, setTaskProgress] = useState<TaskProgress | null>(null);
   const [installOpen, setInstallOpen] = useState(false);
@@ -73,7 +85,9 @@ export function PicoIdeScreen() {
   const [runningOffline, setRunningOffline] = useState(false);
   const [terminalFollow, setTerminalFollow] = useState(true);
   const [lastComputerSave, setLastComputerSave] = useState<ComputerSave | null>(null);
+  const [picoSnapshots, setPicoSnapshots] = useState<Record<string, string>>({});
   const [clearTerminalOnRun, setClearTerminalOnRun] = useState(false);
+  const [screenTooSmall, setScreenTooSmall] = useState(() => typeof window !== 'undefined' && window.innerWidth < IDE_MIN_WIDTH);
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
   const fsRef = useRef<PicoFilesystem | null>(null);
@@ -88,7 +102,7 @@ export function PicoIdeScreen() {
   const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
   const editorLineCount = Math.max(1, editorText.split('\n').length);
   const editorByteSize = new Blob([editorText]).size;
-  const saveStatus = getEditorSaveStatus(path, editorText, localFiles, lastComputerSave);
+  const saveStatus = getEditorSaveStatus(path, editorText, localFiles, lastComputerSave, picoSnapshots);
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
@@ -103,6 +117,7 @@ export function PicoIdeScreen() {
         setConnected(false);
         setRunningOnPico(false);
         runningRef.current = false;
+        clearPicoSessionFiles();
         pushLine('warning', 'USB-forbindelse lukket.');
       },
     });
@@ -112,6 +127,25 @@ export function PicoIdeScreen() {
 
   function pushLine(level: SerialLogLevel, text: string) {
     setLines((current) => [...current.slice(-140), { level, text }]);
+  }
+
+  function markPicoSnapshot(nextPath: string, content: string) {
+    setPicoSnapshots((current) => ({ ...current, [nextPath]: content }));
+  }
+
+  function clearPicoSessionFiles() {
+    setFiles([]);
+    setRuntimeChecks([]);
+    setPicoSnapshots({});
+    setPath((currentPath) => {
+      const currentDrafts = ensureDefaultDraft(loadIdeDrafts());
+      const currentDraft = currentDrafts.find((draft) => draft.path === currentPath);
+      if (currentDraft) return currentPath;
+
+      const nextDraft = currentDrafts[0];
+      setEditorText(nextDraft.content);
+      return nextDraft.path;
+    });
   }
 
   function finishTaskProgress(label: string) {
@@ -149,6 +183,25 @@ export function PicoIdeScreen() {
     el.scrollTop = el.scrollHeight;
   }, [lines, terminalFollow]);
 
+  useEffect(() => {
+    const onResize = () => setScreenTooSmall(window.innerWidth < IDE_MIN_WIDTH);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+      event.preventDefault();
+      if (!busy && path.trim() && !screenTooSmall && !saveOpen && !renameFile && !newFileOpen) {
+        saveFile();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [busy, path, screenTooSmall, saveOpen, renameFile, newFileOpen]);
+
   function updateLocalDraft(nextPath: string, content: string, uploaded: boolean) {
     setLocalFiles((current) => {
       const next = upsertDraft(current, nextPath, content, uploaded);
@@ -157,7 +210,7 @@ export function PicoIdeScreen() {
     });
   }
 
-  const fileRows = buildFileRows(files, localFiles);
+  const fileListItems = buildFileListItems(files, localFiles);
 
   useEffect(() => {
     if (bleMode) {
@@ -202,6 +255,7 @@ export function PicoIdeScreen() {
     replRef.current = null;
     fsRef.current = null;
     setConnected(false);
+    clearPicoSessionFiles();
   }
 
   async function installMicroPython() {
@@ -339,7 +393,7 @@ export function PicoIdeScreen() {
         const text = await bleReadText(nextPath);
         setPath(nextPath);
         setEditorText(text);
-        updateLocalDraft(nextPath, text, true);
+        markPicoSnapshot(nextPath, text);
         pushLine('success', `Læste ${displayPicoPath(nextPath)} via Bluetooth.`);
       } catch (err) {
         pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
@@ -353,7 +407,7 @@ export function PicoIdeScreen() {
       const text = await fs.readText(nextPath);
       setPath(nextPath);
       setEditorText(text);
-      updateLocalDraft(nextPath, text, true);
+      markPicoSnapshot(nextPath, text);
       pushLine('success', `Læste ${nextPath}.`);
     });
   }
@@ -374,7 +428,7 @@ export function PicoIdeScreen() {
       setBusy(true);
       try {
         await bleWriteText(path, editorText, (value, label) => setTaskProgress({ value, label }));
-        updateLocalDraft(path, editorText, true);
+        markPicoSnapshot(path, editorText);
         setSaveOpen(false);
         finishTaskProgress('Gemt på Pico via Bluetooth');
         pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
@@ -394,7 +448,7 @@ export function PicoIdeScreen() {
     }
     await withFs(async (fs) => {
       await fs.writeText(path, editorText, (value, label) => setTaskProgress({ value, label }));
-      updateLocalDraft(path, editorText, true);
+      markPicoSnapshot(path, editorText);
       finishTaskProgress('Gemt på Pico via USB');
       pushLine('success', `Gemte ${path}.`);
       await listFiles();
@@ -432,6 +486,11 @@ export function PicoIdeScreen() {
       setBusy(true);
       try {
         await bleDeleteFile(path);
+        setPicoSnapshots((current) => {
+          const next = { ...current };
+          delete next[path];
+          return next;
+        });
         const next = localFiles.filter((draft) => draft.path !== path);
         setLocalFiles(next);
         saveIdeDrafts(next);
@@ -457,6 +516,11 @@ export function PicoIdeScreen() {
 
     await withFs(async (fs) => {
       await fs.delete(path);
+      setPicoSnapshots((current) => {
+        const next = { ...current };
+        delete next[path];
+        return next;
+      });
       const next = localFiles.filter((draft) => draft.path !== path);
       setLocalFiles(next);
       saveIdeDrafts(next);
@@ -499,6 +563,70 @@ export function PicoIdeScreen() {
     updateLocalDraft(nextPath, '', false);
     setNewFileOpen(false);
     pushLine('info', `Ny fil klar: ${displayPicoPath(nextPath)}. Tryk Gem for at oprette den på Pico.`);
+  }
+
+  function openRenameFile(file: IdeFileRow) {
+    if (file.type !== 'file') return;
+    setRenameFile(file);
+    setRenameFileName(displayPicoPath(file.path));
+  }
+
+  async function renameCurrentFile() {
+    if (!renameFile) return;
+    const nextPath = normalizeEditableFileName(renameFileName);
+    if (!nextPath || nextPath === renameFile.path) {
+      setRenameFile(null);
+      return;
+    }
+
+    if (filePathExists(nextPath)) {
+      pushLine('error', `Der findes allerede en fil med navnet ${displayPicoPath(nextPath)}.`);
+      return;
+    }
+
+    const renameLocal = renameFile.source === 'local' || renameFile.source === 'both';
+    const renamePico = renameFile.source === 'pico' || renameFile.source === 'both';
+
+    setBusy(true);
+    try {
+      if (renamePico) {
+        if (bleMode) {
+          const content = picoSnapshots[renameFile.path] ?? (await bleReadText(renameFile.path));
+          await bleWriteText(nextPath, content, (value, label) => setTaskProgress({ value, label }));
+          await bleDeleteFile(renameFile.path);
+          setPicoSnapshots((current) => ({ ...renameSnapshot(current, renameFile.path, nextPath), [nextPath]: content }));
+        } else if (fsRef.current) {
+          await withQuietTerminal(() => fsRef.current!.rename(renameFile.path, nextPath));
+          setPicoSnapshots((current) => renameSnapshot(current, renameFile.path, nextPath));
+        }
+      }
+
+      if (renameLocal) {
+        setLocalFiles((current) => {
+          const next = current.map((draft) => (draft.path === renameFile.path ? { ...draft, path: nextPath, updatedAt: Date.now() } : draft));
+          saveIdeDrafts(next);
+          return next;
+        });
+      }
+
+      if (path === renameFile.path) {
+        setPath(nextPath);
+      }
+      setLastComputerSave((current) => (current?.path === renameFile.path ? { ...current, path: nextPath } : current));
+      setRenameFile(null);
+      setRenameFileName('');
+      pushLine('success', `Omdobte ${displayPicoPath(renameFile.path)} til ${displayPicoPath(nextPath)}.`);
+      if (renamePico) await listFiles();
+    } catch (err) {
+      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke omdÃ¸be filen.');
+    } finally {
+      setTaskProgress(null);
+      setBusy(false);
+    }
+  }
+
+  function filePathExists(nextPath: string): boolean {
+    return files.some((file) => file.path === nextPath) || localFiles.some((draft) => draft.path === nextPath);
   }
 
   function openFile(file: IdeFileRow) {
@@ -730,6 +858,12 @@ export function PicoIdeScreen() {
   }
 
   function onEditorKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (!busy && path.trim()) saveFile();
+      return;
+    }
+
     if (e.key !== 'Tab') return;
     e.preventDefault();
 
@@ -787,6 +921,17 @@ export function PicoIdeScreen() {
     <div className="screen ide-screen">
       <TopBar title="Pico Kodeværksted" onMenu={() => toggleSideMenu()} />
 
+      {screenTooSmall ? (
+        <div className="ide-size-gate" role="dialog" aria-modal="true" aria-labelledby="ide-size-title">
+          <div className="ide-size-gate-panel">
+            <h2 id="ide-size-title">Brug en laptop til Kodevaerkstedet</h2>
+            <p>
+              Pico IDE'et har filvindue, editor, terminal og Pico-forbindelse paa samme tid. Skaermen er for smal her, saa aabn Kodevaerkstedet
+              paa en laptop eller en storre skaerm.
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="ide-layout">
         <section className="ide-panel ide-files-panel">
           <div className="ide-panel-head">
@@ -804,25 +949,38 @@ export function PicoIdeScreen() {
             </div>
           </div>
           <div className="ide-file-list">
-            {fileRows.length === 0 ? (
+            {fileListItems.length === 0 ? (
               <button type="button" disabled>
                 Ingen filer læst
               </button>
             ) : (
-              fileRows.map((file) => (
-                <button
-                  type="button"
-                  key={file.path}
-                  onClick={() => openFile(file)}
-                  className={path === file.path ? 'active' : ''}
-                >
-                  <span>{file.name}</span>
-                  <small>
-                    <i className={`ide-sync-dot sync-${file.source}`} aria-hidden="true" />
-                    {file.type === 'dir' ? 'mappe' : file.uploaded ? 'Pico' : 'lokal'}
-                  </small>
-                </button>
-              ))
+              fileListItems.map((file) =>
+                file.kind === 'separator' ? (
+                  <div className="ide-file-separator" key={file.id}>
+                    <span>{file.label}</span>
+                  </div>
+                ) : (
+                  <div className={`ide-file-row ${path === file.path ? 'active' : ''}`} key={file.path}>
+                    <button type="button" onClick={() => openFile(file)}>
+                      <span>{file.name}</span>
+                      <small>
+                        <i className={`ide-sync-dot sync-${file.source}`} aria-hidden="true" />
+                        {file.type === 'dir' ? 'mappe' : file.source === 'both' ? 'Pico + browser' : file.source === 'pico' ? 'Pico' : 'browser'}
+                      </small>
+                    </button>
+                    <button
+                      className="ide-file-rename"
+                      type="button"
+                      onClick={() => openRenameFile(file)}
+                      disabled={file.type !== 'file' || busy}
+                      aria-label={`Omdob ${file.name}`}
+                      title="Omdob fil"
+                    >
+                      <Glyph name="edit" size={16} />
+                    </button>
+                  </div>
+                ),
+              )
             )}
           </div>
         </section>
@@ -952,6 +1110,7 @@ export function PicoIdeScreen() {
           </div>
         </section>
       </div>
+      )}
 
       <input
         ref={uploadInputRef}
@@ -1055,6 +1214,34 @@ export function PicoIdeScreen() {
           </form>
         </Modal>
       )}
+
+      {renameFile && (
+        <Modal title="Omdob fil" onClose={() => setRenameFile(null)}>
+          <form
+            className="ide-new-file-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void renameCurrentFile();
+            }}
+          >
+            <label htmlFor="rename-pico-file">Filnavn</label>
+            <div className="ide-new-file-row">
+              <input
+                id="rename-pico-file"
+                value={renameFileName}
+                onChange={(e) => setRenameFileName(e.target.value)}
+                autoFocus
+                placeholder="min_kode.py"
+              />
+            </div>
+            <p>Brug filendelser som .py, .txt, .json eller .csv.</p>
+            {renderTaskProgress()}
+            <button className="btn btn-primary" type="submit" disabled={!normalizeEditableFileName(renameFileName) || busy}>
+              Omdob
+            </button>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1083,6 +1270,21 @@ function normalizeImportedFileName(value: string): string {
   if (!match) return '';
   const base = match[1].replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^_+|_+$/g, '');
   return base ? `/${base}.${match[2].toLowerCase()}` : '';
+}
+
+function normalizeEditableFileName(value: string): string {
+  const raw = value
+    .trim()
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter(Boolean)
+    .pop();
+  if (!raw) return '';
+  const match = raw.match(/^(.+?)(?:\.(py|txt|json|csv))?$/i);
+  if (!match) return '';
+  const base = match[1].replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^_+|_+$/g, '');
+  const ext = (match[2] ?? 'py').toLowerCase();
+  return base ? `/${base}.${ext}` : '';
 }
 
 function normalizeRuntimeContent(value: string): string {
@@ -1182,13 +1384,16 @@ function upsertDraft(drafts: IdeDraft[], path: string, content: string, uploaded
   return [{ path, content, uploaded, updatedAt: Date.now() }, ...next].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-function getEditorSaveStatus(path: string, content: string, drafts: IdeDraft[], computerSave: ComputerSave | null) {
+function getEditorSaveStatus(path: string, content: string, drafts: IdeDraft[], computerSave: ComputerSave | null, picoSnapshots: Record<string, string>) {
   const draft = drafts.find((item) => item.path === path);
   const places: string[] = [];
 
   if (draft?.content === content) {
     places.push('browser');
-    if (draft.uploaded) places.push('Pico');
+  }
+
+  if (picoSnapshots[path] === content) {
+    places.push('Pico');
   }
 
   if (computerSave?.path === path && computerSave.content === content) {
@@ -1217,11 +1422,12 @@ function runtimeStatusLabel(status: RuntimeFileCheck['status']): string {
   return 'Ikke tjekket';
 }
 
-function buildFileRows(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeFileRow[] {
+function buildFileListItems(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeFileListItem[] {
   const rows = new Map<string, IdeFileRow>();
 
   for (const file of picoFiles) {
     rows.set(file.path, {
+      kind: 'file',
       name: file.name,
       path: file.path,
       type: file.type,
@@ -1243,6 +1449,7 @@ function buildFileRows(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeF
     }
 
     rows.set(draft.path, {
+      kind: 'file',
       name: displayPicoPath(draft.path),
       path: draft.path,
       type: 'file',
@@ -1251,5 +1458,24 @@ function buildFileRows(picoFiles: PicoFileEntry[], localFiles: IdeDraft[]): IdeF
     });
   }
 
-  return [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'da'));
+  const sortedRows = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'da'));
+  const picoRows = sortedRows.filter((row) => row.source === 'pico' || row.source === 'both');
+  const localRows = sortedRows.filter((row) => row.source === 'local');
+  const items: IdeFileListItem[] = [];
+
+  if (picoRows.length > 0) {
+    items.push({ kind: 'separator', id: 'pico-files', label: 'Pico' }, ...picoRows);
+  }
+  if (localRows.length > 0) {
+    items.push({ kind: 'separator', id: 'browser-files', label: 'Browser' }, ...localRows);
+  }
+
+  return items;
+}
+
+function renameSnapshot(snapshots: Record<string, string>, from: string, to: string): Record<string, string> {
+  if (!(from in snapshots)) return snapshots;
+  const next = { ...snapshots, [to]: snapshots[from] };
+  delete next[from];
+  return next;
 }
