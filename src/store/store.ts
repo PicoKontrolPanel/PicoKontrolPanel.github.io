@@ -12,7 +12,7 @@ import {
   upsertDevice,
 } from '../lib/storage';
 import { PicoProtocol, parseGridHeader, parseLayout, type BleFileEntry, type LogLevel } from '../ble/protocol';
-import { displayName, requestDevice } from '../ble/transport';
+import { displayName, getPermittedDevices, requestDevice } from '../ble/transport';
 import { DEFAULT_GRID_COLS, DEFAULT_GRID_ROWS } from '../grid/geometry';
 
 export type Screen =
@@ -122,6 +122,7 @@ interface AppState {
   bleWriteText: (path: string, content: string, onProgress?: (value: number, label: string) => void) => Promise<void>;
   bleDeleteFile: (path: string) => Promise<void>;
   bleRestart: () => Promise<void>;
+  bleRestartAndReconnect: (target?: 'control' | 'ide') => Promise<boolean>;
   reconnectLostDevice: () => Promise<void>;
   dismissConnectionLost: () => void;
 
@@ -152,6 +153,10 @@ function timestamp(): string {
   return new Date().toLocaleTimeString('da-DK', { hour12: false });
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export const useStore = create<AppState>((set, get) => {
   function pushLog(level: LogLevel, message: string): void {
     set((s) => ({
@@ -173,9 +178,13 @@ export const useStore = create<AppState>((set, get) => {
     onLog: (level, message) => pushLog(level, message),
     onDisconnect: () => {
       const { screen, active, picoIdeOrigin } = get();
+      if (suppressNextDisconnect) {
+        suppressNextDisconnect = false;
+        return;
+      }
       if (screen === 'control' || screen === 'connection' || screen === 'create' || (screen === 'ide' && picoIdeOrigin === 'control')) {
         const lostDevice: SavedDevice | null =
-          !suppressNextDisconnect && active
+          active
             ? {
                 deviceID: active.deviceID,
                 deviceName: active.deviceName,
@@ -184,9 +193,8 @@ export const useStore = create<AppState>((set, get) => {
                 canOthersEdit: active.canOthersEdit,
                 isOwnedByMe: active.isOwnedByMe,
                 ownerName: active.ownerName,
-              }
+            }
             : null;
-        suppressNextDisconnect = false;
         set({
           screen: 'dashboard',
           active: null,
@@ -520,6 +528,72 @@ export const useStore = create<AppState>((set, get) => {
     bleRestart: async () => {
       if (!protocol?.connected) return;
       await protocol.restart();
+    },
+    bleRestartAndReconnect: async (target = 'control') => {
+      const { active } = get();
+      if (!protocol?.connected || !active) return false;
+      const saved: SavedDevice = {
+        deviceID: active.deviceID,
+        deviceName: active.deviceName,
+        deviceIconID: active.iconID,
+        canOthersConnect: active.canOthersConnect,
+        canOthersEdit: active.canOthersEdit,
+        isOwnedByMe: active.isOwnedByMe,
+        ownerName: active.ownerName,
+      };
+
+      suppressNextDisconnect = true;
+      pushLog('info', 'Genstarter Pico og forsøger automatisk genforbindelse...');
+      try {
+        await protocol.restart();
+      } catch {
+        /* restart often drops the link before the browser sees the ACK */
+      }
+
+      set({
+        progress: { value: 15, label: 'Venter på Pico genstart...' },
+        connecting: { name: saved.deviceName, iconID: saved.deviceIconID },
+      });
+
+      for (let wait = 0; wait < 12 && protocol?.connected; wait += 1) {
+        await delay(250);
+      }
+
+      for (let attempt = 1; attempt <= 8; attempt += 1) {
+        await delay(attempt === 1 ? 1200 : 850);
+        try {
+          const permitted = await getPermittedDevices();
+          const match = permitted.find((device) => device.id === saved.deviceID);
+          if (!match) {
+            set({ progress: { value: Math.min(88, 20 + attempt * 8), label: 'Venter på browser-tilladelse...' } });
+            continue;
+          }
+
+          set({ progress: { value: Math.min(92, 24 + attempt * 8), label: `Genforbinder (${attempt}/8)...` } });
+          await get().connectToDevice(match, saved);
+          if (target === 'ide') {
+            get().openPicoIde();
+          }
+          pushToast('Pico genforbundet.');
+          return true;
+        } catch (err) {
+          pushLog('warning', err instanceof Error ? err.message : 'Genforbindelse mislykkedes.');
+        }
+      }
+
+      pushToast('Kunne ikke genforbinde automatisk. Vælg Picoen igen.');
+      set({
+        screen: 'dashboard',
+        active: null,
+        layout: [],
+        sliderValues: {},
+        editMode: false,
+        sideMenuOpen: false,
+        menuPage: null,
+        connecting: null,
+        connectionLost: saved,
+      });
+      return false;
     },
 
     reconnectLostDevice: async () => {

@@ -1054,8 +1054,10 @@ class BLEPeripheral:
         if not path:
             self._send_reliable_stream(["ERR: Bad path"])
             return
-        protected = ("/BLEPeripheral.py", "/main.py")
-        # Runtime files should only be changed through USB installer/recovery.
+        protected = ("/BLEPeripheral.py",)
+        # The BLE runtime itself should only be changed through USB installer/recovery.
+        # /main.py may be replaced over BLE; the running program keeps using the
+        # current in-memory code until the user explicitly restarts the Pico.
         if path in protected:
             self._send_reliable_stream(["ERR: Protected runtime file"])
             return

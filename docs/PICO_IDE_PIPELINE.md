@@ -1,5 +1,145 @@
 # Pico IDE Pipeline
 
+## Recommended core pipeline
+
+This is the simple pipeline the app should optimize for first. It favors
+predictable classroom use over clever synchronization.
+
+1. Fresh Pico setup happens from a laptop/desktop in Pico IDE.
+2. If the Pico has no MicroPython, the IDE offers the bundled UF2 download.
+   - The most compatible browser path is: hold BOOTSEL, mount the Pico as
+     `RPI-RP2`, download/save the UF2 directly to that drive, and let the Pico
+     reboot into MicroPython.
+   - Browser-specific direct filesystem APIs can remain optional sugar later.
+3. The user connects the Pico through Web Serial.
+4. The IDE installs the selected starter program and libraries over serial.
+   - Program variant installs to `/main.py`.
+   - Shared runtime/control support installs to `/BLEPeripheral.py`.
+   - Project libraries install to the filesystem root.
+   - Writes use temp files, verification, backup, then replace.
+5. The user writes code and saves files to the Pico over serial.
+6. Leaving Pico IDE disconnects Web Serial and returns to the dashboard.
+7. The user searches for nearby BLE devices and connects to the Pico.
+8. From BLE connection the user can:
+   - use the control panel,
+   - enter edit mode to place controls and save `Layout.txt`,
+   - enter Pico IDE to inspect and edit files.
+9. Over BLE, ordinary file saves should replace the file safely with:
+   - write new content to `file.tmp`,
+   - optionally verify by size/hash,
+   - rotate old file to `file.bak`,
+   - rename temp file into place.
+10. Saving `/main.py` over BLE is allowed through a guarded flow.
+    - The current BLE connection can remain alive because overwriting the file
+      on disk does not restart the MicroPython process already running in RAM.
+    - The new `/main.py` does not take effect until the user explicitly chooses
+      `Restart / Apply main.py`.
+    - If the user restarts, BLE will disconnect; the app should treat that as
+      expected and attempt to reconnect to the same known device.
+11. `/BLEPeripheral.py` stays readable in BLE Pico IDE, but locked for editing
+    while connected over BLE.
+    - It is the active connection/runtime layer.
+    - A modal should explain that it can only be changed through USB installer
+      or recovery.
+    - This keeps the connection path understandable and recoverable.
+12. When the user is finished, disconnecting returns to the dashboard where the
+    known device appears under Mine or Andre depending on ownership.
+
+## Feasibility notes
+
+- Installing MicroPython by saving the UF2 directly to the `RPI-RP2` drive is
+  feasible across browsers because it uses normal browser download behavior plus
+  the Pico bootloader drive.
+- Web Serial setup after MicroPython install is feasible on desktop Chromium
+  browsers and Chromebooks.
+- BLE file editing is feasible with the current protocol shape, but should be
+  made safer with explicit firmware commands for rename and protected files.
+- Keeping BLE connected while editing and saving `/main.py` is feasible if save
+  only changes the file on disk. The running program continues from RAM.
+- Running the new `/main.py` without a restart is not a good simple target.
+  MicroPython can reload modules in some cases, but reliably replacing a whole
+  active application without stale globals, callbacks, motors, timers, or BLE
+  state is fragile. The recommended rule is: save keeps connection; apply/restart
+  runs the new boot code.
+- Reconnecting after restart is feasible, but not guaranteed by every browser.
+  The app should try automatic reconnect to the same permitted BluetoothDevice
+  and fall back to the normal device chooser with a clear message.
+
+## Recommended implementation plan
+
+1. Keep Pico IDE desktop-only.
+   - Phones/tablets stay controller-first.
+   - Small screens show the laptop-only modal.
+2. Make serial setup the authoritative first-install and recovery path.
+   - Improve the MicroPython modal to explain the UF2-to-`RPI-RP2` download
+     workflow.
+   - Keep serial runtime installation as the safest way to update
+     `BLEPeripheral.py`.
+3. Add BLE protocol capabilities.
+   - Add a `fs_capabilities` command returning support flags such as
+     `rename`, `safe_write`, `main_write`, and protocol/runtime version.
+   - Use this so the web app can support old firmware gracefully.
+4. Add real BLE rename.
+   - Firmware command: `fs_rename,<from>,<to>`.
+   - App method: `renameFile(from, to)`.
+   - Use it instead of copy-new/delete-old when available.
+   - Keep copy/delete fallback only for non-protected files on old firmware.
+5. Add guarded BLE safe-write for `/main.py`.
+   - Keep `/BLEPeripheral.py` protected over BLE.
+   - Allow `/main.py` only through a special safe-write command or explicit
+     allowlist.
+   - Always write temp, verify, backup, then replace.
+   - Mark the editor state as "Saved to Pico, restart needed".
+6. Add a locked runtime-file editor state.
+   - If `/BLEPeripheral.py` is opened over BLE, show it read-only.
+   - Gray the editor and show a concise modal/notice: "This file keeps the BLE
+     connection alive. Update it from USB installer."
+7. Add explicit Apply/Restart behavior.
+   - After saving `/main.py`, show an `Apply by restarting Pico` action.
+   - On restart, suppress the normal connection-lost warning.
+   - Attempt automatic reconnect and handshake.
+   - Return to the control panel or BLE Pico IDE based on where the user was.
+8. Keep whole-file saves for now.
+   - Do not add diff/patch updates yet.
+   - Whole-file transfer is simpler and more reliable for small classroom Python
+     files.
+   - Consider a patch protocol only if measured BLE save times become a real
+     problem.
+
+## Implemented restart/reconnect behavior
+
+- BLE saves to `/main.py` keep the current BLE session alive and show a restart
+  prompt.
+- The prompt offers:
+  - restart and open the control panel,
+  - restart and return to Pico IDE,
+  - postpone restart.
+- Restart uses the existing BLE `restart` command.
+- The app suppresses the expected disconnect from the reset, waits for the
+  browser to observe the disconnect, then tries to reconnect to the same
+  browser-permitted Bluetooth device via `navigator.bluetooth.getDevices()`.
+- If reconnect succeeds, the normal handshake/layout load runs again.
+- If reconnect fails, the user is returned to the dashboard with the known-device
+  reconnect flow available.
+- The bundled `BLEPeripheral.py` now permits safe BLE writes to `/main.py` while
+  keeping `/BLEPeripheral.py` protected over BLE.
+
+## Manual test path for main.py reconnect
+
+1. Use Pico IDE over USB Serial.
+2. Install/update `BLEPeripheral.py` from the runtime installer so the Pico has
+   the BLE runtime that allows `/main.py` saves.
+3. Disconnect USB by leaving Pico IDE.
+4. Connect to the Pico over BLE from the dashboard.
+5. Open Pico IDE from the connected control panel.
+6. Open `/main.py`, make a small visible change, and save to Pico.
+7. Confirm that the BLE session remains connected and the restart prompt appears.
+8. Choose `Genstart og aabn kontrolpanel`.
+9. Confirm that the Pico restarts, the app reconnects without the normal
+   connection-lost warning, and the control panel opens again.
+10. Repeat with `Genstart og bliv i Kodevaerksted` and confirm the app reconnects
+    back into Pico IDE.
+
 ## Product split
 
 - Phones and tablets are controllers.

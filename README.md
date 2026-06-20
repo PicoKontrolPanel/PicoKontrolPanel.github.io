@@ -72,6 +72,11 @@ On first connect the device is **unowned**, so the app runs the Create flow; aft
 that it streams its control-panel layout. Settings and layout persist on-device in
 `DeviceSettings.txt` / `Layout.txt`.
 
+## Pico IDE pipeline
+
+The recommended first-setup, serial install, BLE edit, and safe `/main.py` update
+flow is documented in `docs/PICO_IDE_PIPELINE.md`.
+
 ## Testing checklist
 
 See `RESULT.md`.

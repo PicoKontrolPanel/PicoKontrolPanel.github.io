@@ -59,7 +59,7 @@ export function PicoIdeScreen() {
   const bleReadText = useStore((s) => s.bleReadText);
   const bleWriteText = useStore((s) => s.bleWriteText);
   const bleDeleteFile = useStore((s) => s.bleDeleteFile);
-  const bleRestart = useStore((s) => s.bleRestart);
+  const bleRestartAndReconnect = useStore((s) => s.bleRestartAndReconnect);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [lines, setLines] = useState<TerminalLine[]>([]);
@@ -80,6 +80,7 @@ export function PicoIdeScreen() {
   const [installOpen, setInstallOpen] = useState(false);
   const [installSelection, setInstallSelection] = useState<Record<string, boolean>>({});
   const [microPythonOpen, setMicroPythonOpen] = useState(false);
+  const [mainRestartOpen, setMainRestartOpen] = useState(false);
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [runningOnPico, setRunningOnPico] = useState(false);
   const [runningOffline, setRunningOffline] = useState(false);
@@ -432,6 +433,10 @@ export function PicoIdeScreen() {
         setSaveOpen(false);
         finishTaskProgress('Gemt på Pico via Bluetooth');
         pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
+        if (isMainPyPath(path)) {
+          setMainRestartOpen(true);
+          pushLine('warning', 'main.py er gemt. Genstart Picoen for at koere den nye version.');
+        }
         await listFiles();
       } catch (err) {
         setTaskProgress(null);
@@ -468,6 +473,30 @@ export function PicoIdeScreen() {
     setLastComputerSave({ path, content: editorText });
     setSaveOpen(false);
     pushLine('success', `Downloadede ${displayPicoPath(path)}.`);
+  }
+
+  async function applyMainPyRestart(target: 'control' | 'ide') {
+    setBusy(true);
+    setTaskProgress({ value: 10, label: 'Genstarter Pico...' });
+    try {
+      const reconnected = await bleRestartAndReconnect(target);
+      if (reconnected) {
+        setMainRestartOpen(false);
+        finishTaskProgress('Pico genforbundet');
+        pushLine('success', target === 'control' ? 'Pico genforbundet. Aabner kontrolpanelet.' : 'Pico genforbundet til Kodevaerkstedet.');
+        if (target === 'ide') {
+          await listFiles();
+        }
+      } else {
+        setTaskProgress(null);
+        pushLine('warning', 'Automatisk genforbindelse lykkedes ikke. Vaelg Picoen fra dashboardet.');
+      }
+    } catch (err) {
+      setTaskProgress(null);
+      pushLine('error', err instanceof Error ? err.message : 'Genstart/genforbindelse mislykkedes.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function deleteFile() {
@@ -586,6 +615,11 @@ export function PicoIdeScreen() {
 
     const renameLocal = renameFile.source === 'local' || renameFile.source === 'both';
     const renamePico = renameFile.source === 'pico' || renameFile.source === 'both';
+
+    if (bleMode && renamePico && (isMainPyPath(renameFile.path) || isMainPyPath(nextPath))) {
+      pushLine('error', 'main.py kan redigeres over Bluetooth, men ikke omdoebes. Gem den som main.py.');
+      return;
+    }
 
     setBusy(true);
     try {
@@ -1153,6 +1187,26 @@ export function PicoIdeScreen() {
         </Modal>
       )}
 
+      {mainRestartOpen && (
+        <Modal title="main.py er gemt" onClose={() => setMainRestartOpen(false)}>
+          <div className="settings-stack">
+            <p className="confirm-message">
+              Picoen koerer stadig den gamle kode. Genstart Picoen for at anvende den nye main.py. Appen forsoeger automatisk at genforbinde bagefter.
+            </p>
+            {renderTaskProgress()}
+            <button className="btn btn-primary btn-block" type="button" onClick={() => void applyMainPyRestart('control')} disabled={busy}>
+              Genstart og aabn kontrolpanel
+            </button>
+            <button className="btn btn-outline btn-block" type="button" onClick={() => void applyMainPyRestart('ide')} disabled={busy}>
+              Genstart og bliv i Kodevaerksted
+            </button>
+            <button className="btn btn-outline btn-block" type="button" onClick={() => setMainRestartOpen(false)} disabled={busy}>
+              Senere
+            </button>
+          </div>
+        </Modal>
+      )}
+
       {microPythonOpen && (
         <Modal title="Installer MicroPython" onClose={() => setMicroPythonOpen(false)}>
           <div className="settings-stack">
@@ -1307,6 +1361,10 @@ function normalizeRuntimeChecks(checks: RuntimeFileCheck[]): RuntimeFileCheck[] 
 
 function displayPicoPath(value: string): string {
   return value.split('/').filter(Boolean).pop() ?? value;
+}
+
+function isMainPyPath(value: string): boolean {
+  return value.replace(/\\/g, '/').toLowerCase() === '/main.py';
 }
 
 function highlightPython(code: string) {
