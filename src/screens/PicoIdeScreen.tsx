@@ -327,17 +327,7 @@ export function PicoIdeScreen() {
     if (bleMode) {
       setBusy(true);
       try {
-        const checks: RuntimeFileCheck[] = [];
-        for (const file of REQUIRED_RUNTIME_FILES) {
-          try {
-            const current = await bleReadText(file.path);
-            const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
-            checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Matcher appens version' : 'Matcher ikke appens version - opdater via USB' });
-          } catch {
-            checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
-          }
-        }
-        const normalizedChecks = normalizeRuntimeChecks(checks);
+        const normalizedChecks = await collectBleRuntimeChecks();
         setRuntimeChecks(normalizedChecks);
         const missing = normalizedChecks.filter((check) => check.status === 'missing').length;
         const outdated = normalizedChecks.filter((check) => check.status === 'outdated').length;
@@ -352,6 +342,24 @@ export function PicoIdeScreen() {
     await checkRuntimeFilesWith(fsRef.current);
   }
 
+  async function collectBleRuntimeChecks(): Promise<RuntimeFileCheck[]> {
+    const checks: RuntimeFileCheck[] = [];
+    for (const file of REQUIRED_RUNTIME_FILES) {
+      if (isBleProtectedRuntimeFile(file)) {
+        checks.push({ ...file, status: 'unknown', detail: 'Opdateres via USB' });
+        continue;
+      }
+
+      try {
+        const current = await bleReadText(file.path);
+        const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
+        checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Matcher appens version' : 'Kan installeres via Bluetooth' });
+      } catch {
+        checks.push({ ...file, status: 'missing', detail: 'Mangler paa Pico' });
+      }
+    }
+    return normalizeRuntimeChecks(checks);
+  }
   async function checkRuntimeFilesWith(fs: PicoFilesystem | null) {
     if (!fs) return;
     setBusy(true);
@@ -689,17 +697,21 @@ export function PicoIdeScreen() {
   }
 
   async function installRuntimeFiles() {
-    if (!connected || bleMode) return;
-    const checks = runtimeChecks.length > 0 ? runtimeChecks : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
+    if (!connected && !bleMode) return;
+    const checks = runtimeChecks.length > 0 ? runtimeChecks : bleMode ? await collectBleRuntimeChecks() : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
     setRuntimeChecks(checks);
     const nextSelection: Record<string, boolean> = {};
     const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
-    const programToInstall = hasActiveProgram ? undefined : checks.find((check) => check.kind === 'program' && check.status !== 'ok');
+    const programToInstall = hasActiveProgram ? undefined : checks.find((check) => check.kind === 'program' && check.status !== 'ok' && !isBleProtectedRuntimeFile(check));
     checks.forEach((check) => {
+      if (bleMode && isBleProtectedRuntimeFile(check)) {
+        nextSelection[check.id] = false;
+        return;
+      }
       if (check.kind === 'program') {
         nextSelection[check.id] = check.id === programToInstall?.id;
       } else {
-        nextSelection[check.id] = check.status !== 'ok';
+        nextSelection[check.id] = check.status !== 'ok' && check.status !== 'unknown';
       }
     });
     setInstallSelection(nextSelection);
@@ -707,6 +719,49 @@ export function PicoIdeScreen() {
   }
 
   async function performInstallRuntimeFiles() {
+    if (bleMode) {
+      setBusy(true);
+      try {
+        const checks =
+          runtimeChecks.length > 0
+            ? runtimeChecks
+            : REQUIRED_RUNTIME_FILES.map((file) => ({ ...file, status: 'unknown', detail: 'Ikke tjekket' }) as RuntimeFileCheck);
+        const targets = checks.filter((check) => installSelection[check.id] && !isBleProtectedRuntimeFile(check));
+        if (targets.length === 0) {
+          pushLine('info', 'Ingen filer valgt til installation.');
+          return;
+        }
+
+        setTaskProgress({ value: 0, label: 'Starter installation...' });
+        for (const [index, file] of targets.entries()) {
+          pushLine('info', `Installerer ${file.label} via Bluetooth...`);
+          const baseProgress = (index / targets.length) * 100;
+          const fileShare = 100 / targets.length;
+          await bleWriteText(file.path, file.content, (value, label) => {
+            setTaskProgress({
+              value: Math.min(99, baseProgress + (value / 100) * fileShare),
+              label: `${file.label}: ${label}`,
+            });
+          });
+          markPicoSnapshot(file.path, file.content);
+          pushLine('success', `Installerede ${file.label}.`);
+          if (isMainPyPath(file.path)) {
+            setMainRestartOpen(true);
+          }
+        }
+        finishTaskProgress('Installation faerdig');
+        await listFiles();
+        await checkRuntimeFiles();
+        setInstallOpen(false);
+      } catch (err) {
+        setTaskProgress(null);
+        pushLine('error', err instanceof Error ? err.message : 'BLE installation fejlede.');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     await withFs(async (fs) => {
       const checks =
         runtimeChecks.length > 0
@@ -731,13 +786,12 @@ export function PicoIdeScreen() {
         });
         pushLine('success', `Installerede ${file.label}.`);
       }
-      finishTaskProgress('Installation færdig');
+      finishTaskProgress('Installation faerdig');
       await listFiles();
       await checkRuntimeFiles();
       setInstallOpen(false);
     });
   }
-
   function updateInstallSelection(file: RuntimeFileCheck, checked: boolean) {
     setInstallSelection((current) => {
       if (file.kind !== 'program') {
@@ -864,26 +918,30 @@ export function PicoIdeScreen() {
     return (
       <div className="ide-install-group">
         <h3>{title}</h3>
-        {items.map((file) => (
-          <label className="ide-install-row" key={file.id}>
-            <input
-              type={file.kind === 'program' ? 'radio' : 'checkbox'}
-              name={file.kind === 'program' ? 'install-program' : undefined}
-              checked={!!installSelection[file.id]}
-              onChange={(e) => updateInstallSelection(file, e.target.checked)}
-            />
-            <span>
-              <strong>
-                {file.label}
-                <em className={`ide-install-status status-${file.status}`}>{runtimeStatusLabel(file.status)}</em>
-              </strong>
-              <small>
-                {file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {file.detail}
-              </small>
-              <small>{file.description}</small>
-            </span>
-          </label>
-        ))}
+        {items.map((file) => {
+          const protectedInBle = bleMode && isBleProtectedRuntimeFile(file);
+          return (
+            <label className={`ide-install-row ${protectedInBle ? 'disabled' : ''}`} key={file.id}>
+              <input
+                type={file.kind === 'program' ? 'radio' : 'checkbox'}
+                name={file.kind === 'program' ? 'install-program' : undefined}
+                checked={!!installSelection[file.id]}
+                disabled={protectedInBle}
+                onChange={(e) => updateInstallSelection(file, e.target.checked)}
+              />
+              <span>
+                <strong>
+                  {file.label}
+                  <em className={`ide-install-status status-${file.status}`}>{protectedInBle ? 'USB' : runtimeStatusLabel(file.status)}</em>
+                </strong>
+                <small>
+                  {file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {protectedInBle ? 'Opdateres via USB' : file.detail}
+                </small>
+                <small>{file.description}</small>
+              </span>
+            </label>
+          );
+        })}
       </div>
     );
   }
@@ -1007,7 +1065,6 @@ export function PicoIdeScreen() {
                     <button type="button" onClick={() => openFile(file)}>
                       <span>{file.name}</span>
                       <small>
-                        <i className={`ide-sync-dot sync-${file.source}`} aria-hidden="true" />
                         {file.type === 'dir' ? 'mappe' : file.source === 'both' ? 'Pico + browser' : file.source === 'pico' ? 'Pico' : 'browser'}
                       </small>
                     </button>
@@ -1049,14 +1106,23 @@ export function PicoIdeScreen() {
               </button>
             </div>
           )}
+          {bleMode && (
+            <div className="ide-actions">
+              <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={busy}>
+                Installer
+              </button>
+            </div>
+          )}
           <div className="ide-runtime">
             <div className="ide-mini-actions">
               <button className="btn btn-outline" type="button" onClick={checkRuntimeFiles} disabled={(!connected && !bleMode) || busy}>
                 Tjek filer
               </button>
-              <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={() => setMicroPythonOpen(true)}>
-                MicroPython
-              </button>
+              {!bleMode && (
+                <button className="btn btn-outline ide-disconnect-btn" type="button" onClick={() => setMicroPythonOpen(true)}>
+                  MicroPython
+                </button>
+              )}
             </div>
             <div className="ide-runtime-list">
               {runtimeChecks.length > 0 && (
@@ -1078,7 +1144,6 @@ export function PicoIdeScreen() {
                 <small>{editorByteSize} bytes</small>
               </h2>
               <div className={`ide-save-status save-${saveStatus.kind}`} title={saveStatus.title} aria-label={saveStatus.title}>
-                <span className="ide-save-dot" aria-hidden="true" />
                 <span>{saveStatus.label}</span>
               </div>
             </div>
@@ -1380,6 +1445,10 @@ function displayPicoPath(value: string): string {
 
 function isMainPyPath(value: string): boolean {
   return value.replace(/\\/g, '/').toLowerCase() === '/main.py';
+}
+
+function isBleProtectedRuntimeFile(file: Pick<RuntimeFileCheck, 'path'>): boolean {
+  return file.path.replace(/\\/g, '/').toLowerCase() === '/bleperipheral.py';
 }
 
 function highlightPython(code: string) {
