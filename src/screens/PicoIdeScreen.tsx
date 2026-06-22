@@ -1117,7 +1117,7 @@ export function PicoIdeScreen() {
                       <span>{file.name}</span>
                       <small>
                         {protectedInBle
-                          ? 'låst - holder Bluetooth aktiv'
+                          ? 'låst'
                           : file.type === 'dir'
                             ? 'mappe'
                             : file.source === 'both'

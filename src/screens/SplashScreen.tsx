@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { logoUrl } from '../assets/icons';
 import { useStore } from '../store/store';
 
-const SPLASH_MS = 1550;
+const SPLASH_MS = 1850;
 const REDUCED_MOTION_MS = 450;
 
 export function SplashScreen() {
