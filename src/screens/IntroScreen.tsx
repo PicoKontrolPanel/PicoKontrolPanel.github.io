@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { logoUrl } from '../assets/icons';
 import { APP_VERSION } from '../lib/storage';
 import { useStore } from '../store/store';
 
@@ -13,7 +12,6 @@ export function IntroScreen() {
     <div className="screen intro">
       <div className="intro-header">
         <h2>Teknologiskolen</h2>
-        <img className="intro-logo" src={logoUrl} alt="" />
       </div>
 
       <div className="intro-body">
