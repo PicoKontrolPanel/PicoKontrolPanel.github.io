@@ -1425,10 +1425,8 @@ button:disabled {
   display: grid;
   place-items: center;
   padding: 0;
-  border: 2px solid var(--red);
-  border-radius: 999px;
   color: var(--red);
-  background: var(--white);
+  background: transparent;
 }
 
 .ide-task-cancel:active {

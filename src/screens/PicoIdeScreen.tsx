@@ -117,6 +117,7 @@ export function PicoIdeScreen() {
   const offlineAbortRef = useRef<AbortController | null>(null);
   const bleFileReadAbortRef = useRef<AbortController | null>(null);
   const bleFileReadDoneRef = useRef<Promise<void> | null>(null);
+  const bleFileReadGenerationRef = useRef(0);
   const bleSessionKeyRef = useRef<string | null>(null);
 
   const status = developerModeStatus();
@@ -503,12 +504,18 @@ export function PicoIdeScreen() {
 
   async function readFile(nextPath = path) {
     if (bleMode) {
+      const generation = bleFileReadGenerationRef.current + 1;
+      bleFileReadGenerationRef.current = generation;
       bleFileReadAbortRef.current?.abort();
+      setLoadingFilePath(nextPath);
+      setBusy(true);
+      setTaskProgress({ value: 2, label: `Skifter til ${displayPicoPath(nextPath)}...`, cancellable: true });
       const previousRead = bleFileReadDoneRef.current;
       const readTask = (async () => {
         if (previousRead) {
           await previousRead.catch(() => {});
         }
+        if (bleFileReadGenerationRef.current !== generation) return;
 
         const abortController = new AbortController();
         bleFileReadAbortRef.current = abortController;
@@ -518,14 +525,21 @@ export function PicoIdeScreen() {
         try {
           const text = await bleReadText(
             nextPath,
-            (value, label) => setTaskProgress({ value, label, cancellable: true }),
+            (value, label) => {
+              if (bleFileReadGenerationRef.current === generation) {
+                setTaskProgress({ value, label, cancellable: true });
+              }
+            },
             abortController.signal,
           );
-          if (abortController.signal.aborted) return;
+          if (abortController.signal.aborted || bleFileReadGenerationRef.current !== generation) return;
           setEditorDraft(nextPath, text, 'pico');
           markPicoSnapshot(nextPath, text);
           finishTaskProgress('Fil indlæst');
         } catch (err) {
+          if (bleFileReadGenerationRef.current !== generation) {
+            return;
+          }
           if (isAbortError(err) || abortController.signal.aborted) {
             pushLine('info', `Stoppede læsning af ${displayPicoPath(nextPath)}.`);
           } else {
@@ -533,7 +547,7 @@ export function PicoIdeScreen() {
             pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
           }
         } finally {
-          if (bleFileReadAbortRef.current === abortController) {
+          if (bleFileReadGenerationRef.current === generation && bleFileReadAbortRef.current === abortController) {
             bleFileReadAbortRef.current = null;
             setLoadingFilePath(null);
             setBusy(false);
@@ -550,24 +564,6 @@ export function PicoIdeScreen() {
     }
 
     setLoadingFilePath(nextPath);
-    if (bleMode) {
-      setBusy(true);
-      setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
-      try {
-        const text = await bleReadText(nextPath, (value, label) => setTaskProgress({ value, label }));
-        setEditorDraft(nextPath, text, 'pico');
-        markPicoSnapshot(nextPath, text);
-        finishTaskProgress('Fil indlæst');
-      } catch (err) {
-        setTaskProgress(null);
-        pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
-      } finally {
-        setLoadingFilePath(null);
-        setBusy(false);
-      }
-      return;
-    }
-
     await withFs(async (fs) => {
       setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
       const text = await fs.readText(nextPath);
