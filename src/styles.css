@@ -1280,14 +1280,14 @@ button:disabled {
 }
 
 .ide-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
   gap: 10px;
 }
 
 .ide-actions .btn {
-  flex: 1;
+  width: min(100%, 360px);
   min-height: 42px;
   white-space: nowrap;
 }
@@ -1434,8 +1434,8 @@ button:disabled {
 
 .ide-runtime .ide-mini-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  justify-content: stretch;
+  grid-template-columns: repeat(2, minmax(0, 176px));
+  justify-content: center;
   gap: 6px;
 }
 
