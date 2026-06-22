@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { logoUrl } from '../assets/icons';
 import { useStore } from '../store/store';
 
-const LONG_SPLASH_MS = 5050;
+const LONG_SPLASH_MS = 4550;
 const SHORT_SPLASH_MS = 1550;
 const REDUCED_MOTION_MS = 450;
 
@@ -25,8 +25,8 @@ export function SplashScreen() {
     <div className={`screen splash-screen splash-${variant}`} aria-label="Teknologiskolen starter">
       <div className="splash-red-field" />
       <div className="splash-brand" aria-hidden="true">
-        {target && isFirstRun && <div className="splash-name">Teknologiskolen</div>}
-        <div className="splash-logo-shell">
+        {target && isFirstRun && <div className="splash-mark splash-name">Teknologiskolen</div>}
+        <div className="splash-mark splash-logo-shell">
           <img className="splash-logo" src={logoUrl} alt="" />
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Glyph } from '../assets/icons';
+import { logoUrl } from '../assets/icons';
 import { APP_VERSION } from '../lib/storage';
 import { useStore } from '../store/store';
 
@@ -13,9 +13,7 @@ export function IntroScreen() {
     <div className="screen intro">
       <div className="intro-header">
         <h2>Teknologiskolen</h2>
-        <div className="logo-circle">
-          <Glyph name="power" size={40} />
-        </div>
+        <img className="intro-logo" src={logoUrl} alt="" />
       </div>
 
       <div className="intro-body">
