@@ -68,6 +68,7 @@ interface ActiveDevice {
 
 interface AppState {
   screen: Screen;
+  splashTarget: Extract<Screen, 'intro' | 'dashboard'> | null;
   user: User | null;
   savedDevices: SavedDevice[];
 
@@ -91,6 +92,7 @@ interface AppState {
 
   // actions
   init: () => void;
+  finishSplash: () => void;
   createUser: (username: string) => void;
   findDevice: () => Promise<void>;
   connectToDevice: (device: BluetoothDevice, known?: SavedDevice) => Promise<void>;
@@ -211,6 +213,7 @@ export const useStore = create<AppState>((set, get) => {
 
   return {
     screen: 'splash',
+    splashTarget: null,
     user: null,
     savedDevices: [],
     connecting: null,
@@ -235,8 +238,13 @@ export const useStore = create<AppState>((set, get) => {
       set({
         user,
         savedDevices,
-        screen: user ? 'dashboard' : 'intro',
+        splashTarget: user ? 'dashboard' : 'intro',
       });
+    },
+
+    finishSplash: () => {
+      const target = get().splashTarget;
+      set({ screen: target ?? 'intro' });
     },
 
     createUser: (username) => {

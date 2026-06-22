@@ -22,8 +22,7 @@ function App() {
   const [sideMenuMounted, setSideMenuMounted] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => init(), 1100);
-    return () => clearTimeout(timer);
+    init();
   }, [init]);
 
   useEffect(() => {
