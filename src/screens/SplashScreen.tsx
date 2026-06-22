@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { logoUrl } from '../assets/icons';
 import { useStore } from '../store/store';
 
-const LONG_SPLASH_MS = 3650;
+const LONG_SPLASH_MS = 5050;
 const SHORT_SPLASH_MS = 1550;
 const REDUCED_MOTION_MS = 450;
 
