@@ -1240,6 +1240,20 @@ button:disabled {
   background: var(--grey-light);
 }
 
+.ide-screen .topbar-inner {
+  max-width: var(--ide-max);
+}
+
+.ide-screen .sidemenu {
+  --sidemenu-right: max(0px, calc((100vw - min(var(--ide-max), calc(100vw - clamp(32px, 4.8vw, 80px)))) / 2 - var(--sidemenu-w) / 2 + 20px));
+}
+
+@media (min-width: 760px) {
+  .ide-screen .sidemenu {
+    --sidemenu-right: max(0px, calc((100vw - min(var(--ide-max), calc(100vw - clamp(32px, 4.8vw, 80px)))) / 2 - var(--sidemenu-w) + 60px));
+  }
+}
+
 .ide-layout {
   flex: 1;
   width: calc(100% - clamp(32px, 4.8vw, 80px));
