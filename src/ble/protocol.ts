@@ -55,6 +55,11 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw new DOMException('BLE file read cancelled', 'AbortError');
+}
+
 function protocolField(value: string): string {
   return value.replace(/[\r\n,]/g, ' ').trim();
 }
@@ -409,18 +414,21 @@ export class PicoProtocol {
       });
   }
 
-  async readText(path: string, onProgress?: FileReadProgress): Promise<string> {
-    return this.readTextPaged(path, onProgress);
+  async readText(path: string, onProgress?: FileReadProgress, signal?: AbortSignal): Promise<string> {
+    return this.readTextPaged(path, onProgress, signal);
   }
 
-  private async readTextPaged(path: string, onProgress?: FileReadProgress): Promise<string> {
+  private async readTextPaged(path: string, onProgress?: FileReadProgress, signal?: AbortSignal): Promise<string> {
     let offset = 0;
     let total: number | null = null;
     let hex = '';
+    throwIfAborted(signal);
     onProgress?.(5, `Starter læsning af ${path}...`);
 
     for (let page = 0; page < 512; page += 1) {
-      const lines = await this.readPageWithRetry(path, offset);
+      throwIfAborted(signal);
+      const lines = await this.readPageWithRetry(path, offset, signal);
+      throwIfAborted(signal);
       const error = lines.find((line) => line.startsWith('ERR'));
       if (error) throw new Error(error);
 
@@ -449,10 +457,11 @@ export class PicoProtocol {
     throw new Error('ERR: fs_read_page too many pages');
   }
 
-  private async readPageWithRetry(path: string, offset: number): Promise<string[]> {
+  private async readPageWithRetry(path: string, offset: number, signal?: AbortSignal): Promise<string[]> {
     let lastErr: unknown;
     for (const pageSize of FILE_READ_FALLBACK_PAGE_SIZES) {
       for (let attempt = 1; attempt <= FILE_READ_PAGE_ATTEMPTS; attempt += 1) {
+        throwIfAborted(signal);
         try {
           return await this.collectLines(
             `fs_read_page,${protocolField(path)},${offset},${pageSize}`,

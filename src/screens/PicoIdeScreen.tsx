@@ -20,6 +20,7 @@ interface TerminalLine {
 interface TaskProgress {
   value: number;
   label: string;
+  cancellable?: boolean;
 }
 
 interface IdeFileRow {
@@ -114,6 +115,8 @@ export function PicoIdeScreen() {
   const runningRef = useRef(false);
   const terminalQuietRef = useRef(false);
   const offlineAbortRef = useRef<AbortController | null>(null);
+  const bleFileReadAbortRef = useRef<AbortController | null>(null);
+  const bleFileReadDoneRef = useRef<Promise<void> | null>(null);
   const bleSessionKeyRef = useRef<string | null>(null);
 
   const status = developerModeStatus();
@@ -217,10 +220,22 @@ export function PicoIdeScreen() {
         <div>
           <span>{taskProgress.label}</span>
           <strong>{Math.round(taskProgress.value)}%</strong>
+          {taskProgress.cancellable && (
+            <button className="ide-task-cancel" type="button" onClick={cancelCurrentTask} aria-label="Stop handling" title="Stop">
+              <Glyph name="delete" size={18} />
+            </button>
+          )}
         </div>
         <i style={{ width: `${Math.max(2, Math.min(100, taskProgress.value))}%` }} />
       </div>
     );
+  }
+
+  function cancelCurrentTask() {
+    if (!bleFileReadAbortRef.current) return;
+    bleFileReadAbortRef.current.abort();
+    setTaskProgress({ value: taskProgress?.value ?? 0, label: 'Stopper læsning...', cancellable: false });
+    pushLine('warning', 'Stopper BLE-læsning efter den aktuelle datapakke.');
   }
 
   async function withQuietTerminal<T>(action: () => Promise<T>): Promise<T> {
@@ -400,14 +415,17 @@ export function PicoIdeScreen() {
   async function checkRuntimeFiles() {
     if (bleMode) {
       setBusy(true);
+      setTaskProgress({ value: 4, label: 'Tjekker filer på Pico via Bluetooth...' });
       try {
-        const normalizedChecks = await collectBleRuntimeChecks();
+        const normalizedChecks = await collectBleRuntimeChecks((value, label) => setTaskProgress({ value, label }));
         setRuntimeChecks(normalizedChecks);
         const missing = normalizedChecks.filter((check) => check.status === 'missing').length;
         const outdated = normalizedChecks.filter((check) => check.status === 'outdated').length;
         pushLine(missing || outdated ? 'warning' : 'success', `Runtime check: ${missing} mangler, ${outdated} skal opdateres.`);
         logRuntimeCheckDetails(normalizedChecks);
+        finishTaskProgress('Fil-tjek færdigt');
       } catch (err) {
+        setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE runtime check fejlede.');
       } finally {
         setBusy(false);
@@ -417,8 +435,10 @@ export function PicoIdeScreen() {
     await checkRuntimeFilesWith(fsRef.current);
   }
 
-  async function collectBleRuntimeChecks(): Promise<RuntimeFileCheck[]> {
+  async function collectBleRuntimeChecks(onProgress?: (value: number, label: string) => void): Promise<RuntimeFileCheck[]> {
     const checks: RuntimeFileCheck[] = [];
+    const readableFiles = REQUIRED_RUNTIME_FILES.filter((file) => !isBleProtectedRuntimeFile(file));
+    let readableIndex = 0;
     for (const file of REQUIRED_RUNTIME_FILES) {
       if (isBleProtectedRuntimeFile(file)) {
         checks.push({ ...file, status: 'unknown', detail: 'Opdateres via USB' });
@@ -426,13 +446,22 @@ export function PicoIdeScreen() {
       }
 
       try {
-        const current = await bleReadText(file.path);
+        const baseProgress = (readableIndex / Math.max(1, readableFiles.length)) * 100;
+        const fileShare = 100 / Math.max(1, readableFiles.length);
+        pushLine('info', `Tjekker ${file.label} på Pico via Bluetooth...`);
+        onProgress?.(Math.min(95, baseProgress), `Tjekker ${file.label} på Pico...`);
+        const current = await bleReadText(file.path, (value, label) => {
+          onProgress?.(Math.min(95, baseProgress + (value / 100) * fileShare), `${file.label}: ${label}`);
+        });
         const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
         checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Matcher appens version' : 'Kan installeres via Bluetooth' });
       } catch {
         checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
+      } finally {
+        readableIndex += 1;
       }
     }
+    onProgress?.(100, 'Fil-tjek færdigt');
     return normalizeRuntimeChecks(checks);
   }
   async function checkRuntimeFilesWith(fs: PicoFilesystem | null) {
@@ -473,6 +502,53 @@ export function PicoIdeScreen() {
   }
 
   async function readFile(nextPath = path) {
+    if (bleMode) {
+      bleFileReadAbortRef.current?.abort();
+      const previousRead = bleFileReadDoneRef.current;
+      const readTask = (async () => {
+        if (previousRead) {
+          await previousRead.catch(() => {});
+        }
+
+        const abortController = new AbortController();
+        bleFileReadAbortRef.current = abortController;
+        setLoadingFilePath(nextPath);
+        setBusy(true);
+        setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...`, cancellable: true });
+        try {
+          const text = await bleReadText(
+            nextPath,
+            (value, label) => setTaskProgress({ value, label, cancellable: true }),
+            abortController.signal,
+          );
+          if (abortController.signal.aborted) return;
+          setEditorDraft(nextPath, text, 'pico');
+          markPicoSnapshot(nextPath, text);
+          finishTaskProgress('Fil indlæst');
+        } catch (err) {
+          if (isAbortError(err) || abortController.signal.aborted) {
+            pushLine('info', `Stoppede læsning af ${displayPicoPath(nextPath)}.`);
+          } else {
+            setTaskProgress(null);
+            pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
+          }
+        } finally {
+          if (bleFileReadAbortRef.current === abortController) {
+            bleFileReadAbortRef.current = null;
+            setLoadingFilePath(null);
+            setBusy(false);
+            if (abortController.signal.aborted) setTaskProgress(null);
+          }
+        }
+      })();
+      bleFileReadDoneRef.current = readTask;
+      await readTask;
+      if (bleFileReadDoneRef.current === readTask) {
+        bleFileReadDoneRef.current = null;
+      }
+      return;
+    }
+
     setLoadingFilePath(nextPath);
     if (bleMode) {
       setBusy(true);
@@ -813,24 +889,40 @@ export function PicoIdeScreen() {
 
   async function installRuntimeFiles() {
     if (!connected && !bleMode) return;
-    const checks = runtimeChecks.length > 0 ? runtimeChecks : bleMode ? await collectBleRuntimeChecks() : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
-    setRuntimeChecks(checks);
-    const nextSelection: Record<string, boolean> = {};
-    const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
-    const programToInstall = hasActiveProgram ? undefined : checks.find((check) => check.kind === 'program' && check.status !== 'ok' && !isBleProtectedRuntimeFile(check));
-    checks.forEach((check) => {
-      if (bleMode && isBleProtectedRuntimeFile(check)) {
-        nextSelection[check.id] = false;
-        return;
-      }
-      if (check.kind === 'program') {
-        nextSelection[check.id] = check.id === programToInstall?.id;
-      } else {
-        nextSelection[check.id] = check.status !== 'ok' && check.status !== 'unknown';
-      }
-    });
-    setInstallSelection(nextSelection);
-    setInstallOpen(true);
+    setBusy(true);
+    setTaskProgress({ value: 4, label: bleMode ? 'Tjekker filer på Pico via Bluetooth...' : 'Tjekker filer på Pico...' });
+    pushLine('info', bleMode ? 'Tjekker runtime-filer via Bluetooth før installation...' : 'Tjekker runtime-filer før installation...');
+    try {
+      const checks =
+        runtimeChecks.length > 0
+          ? runtimeChecks
+          : bleMode
+            ? await collectBleRuntimeChecks((value, label) => setTaskProgress({ value, label }))
+            : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
+      setRuntimeChecks(checks);
+      const nextSelection: Record<string, boolean> = {};
+      const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
+      const programToInstall = hasActiveProgram ? undefined : checks.find((check) => check.kind === 'program' && check.status !== 'ok' && !isBleProtectedRuntimeFile(check));
+      checks.forEach((check) => {
+        if (bleMode && isBleProtectedRuntimeFile(check)) {
+          nextSelection[check.id] = false;
+          return;
+        }
+        if (check.kind === 'program') {
+          nextSelection[check.id] = check.id === programToInstall?.id;
+        } else {
+          nextSelection[check.id] = check.status !== 'ok' && check.status !== 'unknown';
+        }
+      });
+      setInstallSelection(nextSelection);
+      setInstallOpen(true);
+      setTaskProgress(null);
+    } catch (err) {
+      setTaskProgress(null);
+      pushLine('error', err instanceof Error ? err.message : 'Fil-tjek før installation fejlede.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function performInstallRuntimeFiles() {
@@ -1707,6 +1799,10 @@ function displayPicoPath(value: string): string {
 
 function isMainPyPath(value: string): boolean {
   return value.replace(/\\/g, '/').toLowerCase() === '/main.py';
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
 }
 
 function isBleProtectedRuntimeFile(file: Pick<RuntimeFileCheck, 'path'>): boolean {

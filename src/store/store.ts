@@ -120,7 +120,7 @@ interface AppState {
   closePicoIde: () => void;
   isBleConnected: () => boolean;
   bleListFiles: () => Promise<BleFileEntry[]>;
-  bleReadText: (path: string, onProgress?: (value: number, label: string) => void) => Promise<string>;
+  bleReadText: (path: string, onProgress?: (value: number, label: string) => void, signal?: AbortSignal) => Promise<string>;
   bleWriteText: (path: string, content: string, onProgress?: (value: number, label: string) => void) => Promise<void>;
   bleDeleteFile: (path: string) => Promise<void>;
   bleRestart: () => Promise<void>;
@@ -521,9 +521,9 @@ export const useStore = create<AppState>((set, get) => {
       if (!protocol?.connected) return [];
       return protocol.listFiles('/');
     },
-    bleReadText: async (path, onProgress) => {
+    bleReadText: async (path, onProgress, signal) => {
       if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
-      return protocol.readText(path, onProgress);
+      return protocol.readText(path, onProgress, signal);
     },
     bleWriteText: async (path, content, onProgress) => {
       if (!protocol?.connected) throw new Error('Ingen BLE-forbindelse.');
