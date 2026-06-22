@@ -98,13 +98,16 @@ export function PicoIdeScreen() {
   const runningRef = useRef(false);
   const terminalQuietRef = useRef(false);
   const offlineAbortRef = useRef<AbortController | null>(null);
+  const bleSessionKeyRef = useRef<string | null>(null);
 
   const status = developerModeStatus();
   const bleMode = picoIdeOrigin === 'control' && !!active && isBleConnected();
+  const bleSessionKey = bleMode ? (active?.deviceID ?? 'ble') : null;
   const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
   const editorLineCount = Math.max(1, editorText.split('\n').length);
   const editorByteSize = new Blob([editorText]).size;
   const saveStatus = getEditorSaveStatus(path, editorText, localFiles, lastComputerSave, picoSnapshots);
+  const runtimeSummary = getRuntimeCheckSummary(runtimeChecks);
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
@@ -129,6 +132,14 @@ export function PicoIdeScreen() {
 
   function pushLine(level: SerialLogLevel, text: string) {
     setLines((current) => [...current.slice(-140), { level, text }]);
+  }
+
+  function logRuntimeCheckDetails(checks: RuntimeFileCheck[]) {
+    if (checks.length === 0) return;
+    pushLine('info', 'Fil-tjek detaljer:');
+    for (const check of checks) {
+      pushLine(runtimeCheckLogLevel(check.status), `${check.label}: ${check.detail}`);
+    }
   }
 
   function markPicoSnapshot(nextPath: string, content: string) {
@@ -193,6 +204,16 @@ export function PicoIdeScreen() {
   }, []);
 
   useEffect(() => {
+    return () => {
+      const transport = transportRef.current;
+      replRef.current = null;
+      fsRef.current = null;
+      transportRef.current = null;
+      void transport?.disconnect().catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
       event.preventDefault();
@@ -220,6 +241,15 @@ export function PicoIdeScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bleMode]);
+
+  useEffect(() => {
+    const previous = bleSessionKeyRef.current;
+    if (previous && previous !== bleSessionKey) {
+      clearPicoSessionFiles();
+    }
+    bleSessionKeyRef.current = bleSessionKey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bleSessionKey]);
 
   async function connectUsb() {
     if (!status.supported) return;
@@ -332,6 +362,7 @@ export function PicoIdeScreen() {
         const missing = normalizedChecks.filter((check) => check.status === 'missing').length;
         const outdated = normalizedChecks.filter((check) => check.status === 'outdated').length;
         pushLine(missing || outdated ? 'warning' : 'success', `Runtime check: ${missing} mangler, ${outdated} skal opdateres.`);
+        logRuntimeCheckDetails(normalizedChecks);
       } catch (err) {
         pushLine('error', err instanceof Error ? err.message : 'BLE runtime check fejlede.');
       } finally {
@@ -374,6 +405,7 @@ export function PicoIdeScreen() {
       } else {
         pushLine('success', 'Runtime check: alle filer er klar.');
       }
+      logRuntimeCheckDetails(normalizedChecks);
     } catch (err) {
       pushLine('error', err instanceof Error ? err.message : 'Runtime check fejlede.');
     } finally {
@@ -407,7 +439,6 @@ export function PicoIdeScreen() {
         setEditorText(text);
         markPicoSnapshot(nextPath, text);
         finishTaskProgress('Fil indlæst');
-        pushLine('success', `Indlæste ${displayPicoPath(nextPath)} via Bluetooth.`);
       } catch (err) {
         setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE læsning fejlede.');
@@ -425,7 +456,6 @@ export function PicoIdeScreen() {
       setEditorText(text);
       markPicoSnapshot(nextPath, text);
       finishTaskProgress('Fil indlæst');
-      pushLine('success', `Indlæste ${nextPath}.`);
     });
     setLoadingFilePath(null);
   }
@@ -686,10 +716,21 @@ export function PicoIdeScreen() {
       return;
     }
 
+    if (bleMode && isBleProtectedRuntimeFile(file)) {
+      pushLine('warning', 'BLEPeripheral.py holder Bluetooth-forbindelsen i gang og kan ikke åbnes her.');
+      return;
+    }
+
     if (file.source === 'local') {
       const draft = localFiles.find((item) => item.path === file.path);
       setPath(file.path);
       setEditorText(draft?.content ?? '');
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(picoSnapshots, file.path)) {
+      setPath(file.path);
+      setEditorText(picoSnapshots[file.path]);
       return;
     }
 
@@ -719,6 +760,8 @@ export function PicoIdeScreen() {
   }
 
   async function performInstallRuntimeFiles() {
+    setInstallOpen(false);
+
     if (bleMode) {
       setBusy(true);
       try {
@@ -752,7 +795,6 @@ export function PicoIdeScreen() {
         finishTaskProgress('Installation faerdig');
         await listFiles();
         await checkRuntimeFiles();
-        setInstallOpen(false);
       } catch (err) {
         setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE installation fejlede.');
@@ -789,7 +831,6 @@ export function PicoIdeScreen() {
       finishTaskProgress('Installation faerdig');
       await listFiles();
       await checkRuntimeFiles();
-      setInstallOpen(false);
     });
   }
   function updateInstallSelection(file: RuntimeFileCheck, checked: boolean) {
@@ -1055,32 +1096,50 @@ export function PicoIdeScreen() {
                 Ingen filer læst
               </button>
             ) : (
-              fileListItems.map((file) =>
-                file.kind === 'separator' ? (
+              fileListItems.map((file) => {
+                if (file.kind === 'separator') {
+                  return (
                   <div className="ide-file-separator" key={file.id}>
                     <span>{file.label}</span>
                   </div>
-                ) : (
-                  <div className={`ide-file-row ${path === file.path ? 'active' : ''}`} key={file.path}>
-                    <button type="button" onClick={() => openFile(file)}>
+                  );
+                }
+
+                const protectedInBle = bleMode && isBleProtectedRuntimeFile(file);
+                return (
+                  <div className={`ide-file-row ${path === file.path ? 'active' : ''} ${protectedInBle ? 'protected' : ''}`} key={file.path}>
+                    <button
+                      type="button"
+                      onClick={() => openFile(file)}
+                      disabled={protectedInBle}
+                      title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke åbnes her' : undefined}
+                    >
                       <span>{file.name}</span>
                       <small>
-                        {file.type === 'dir' ? 'mappe' : file.source === 'both' ? 'Pico + browser' : file.source === 'pico' ? 'Pico' : 'browser'}
+                        {protectedInBle
+                          ? 'låst - holder Bluetooth aktiv'
+                          : file.type === 'dir'
+                            ? 'mappe'
+                            : file.source === 'both'
+                              ? 'Pico + browser'
+                              : file.source === 'pico'
+                                ? 'Pico'
+                                : 'browser'}
                       </small>
                     </button>
                     <button
                       className="ide-file-rename"
                       type="button"
                       onClick={() => openRenameFile(file)}
-                      disabled={file.type !== 'file' || busy}
+                      disabled={file.type !== 'file' || busy || protectedInBle}
                       aria-label={`Omdob ${file.name}`}
-                      title="Omdob fil"
+                      title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke ændres her' : 'Omdob fil'}
                     >
                       <Glyph name="edit" size={16} />
                     </button>
                   </div>
-                ),
-              )
+                );
+              })
             )}
           </div>
         </section>
@@ -1124,15 +1183,7 @@ export function PicoIdeScreen() {
                 </button>
               )}
             </div>
-            <div className="ide-runtime-list">
-              {runtimeChecks.length > 0 && (
-                runtimeChecks.map((check) => (
-                  <span className={`runtime-${check.status}`} key={check.id}>
-                    {check.label}: {check.detail}
-                  </span>
-                ))
-              )}
-            </div>
+            <p className={`ide-runtime-summary runtime-${runtimeSummary.status}`}>{runtimeSummary.label}</p>
           </div>
         </section>
 
@@ -1259,7 +1310,6 @@ export function PicoIdeScreen() {
           <div className="ide-install-list">
             {renderInstallGroup('Startprogrammer', runtimeChecks.filter((file) => file.kind === 'program'))}
             {renderInstallGroup('Biblioteker', runtimeChecks.filter((file) => file.kind === 'library'))}
-            {renderTaskProgress()}
             <button className="btn btn-primary" type="button" onClick={performInstallRuntimeFiles} disabled={busy}>
               Installer valgte
             </button>
@@ -1437,6 +1487,35 @@ function normalizeRuntimeChecks(checks: RuntimeFileCheck[]): RuntimeFileCheck[] 
       detail: 'Kan installeres som alternativ',
     };
   });
+}
+
+function runtimeCheckLogLevel(status: RuntimeFileCheck['status']): SerialLogLevel {
+  if (status === 'ok') return 'success';
+  if (status === 'unknown') return 'info';
+  return 'warning';
+}
+
+function getRuntimeCheckSummary(checks: RuntimeFileCheck[]): { status: RuntimeFileCheck['status']; label: string } {
+  if (checks.length === 0) {
+    return { status: 'unknown', label: 'Tjek filer for at se status. Detaljer vises i terminalen.' };
+  }
+
+  const missing = checks.filter((check) => check.status === 'missing').length;
+  const outdated = checks.filter((check) => check.status === 'outdated').length;
+  const unknown = checks.filter((check) => check.status === 'unknown').length;
+  if (missing || outdated) {
+    return {
+      status: 'outdated',
+      label: `Tjekket ${checks.length} filer: ${missing} mangler, ${outdated} skal opdateres. Detaljer staar i terminalen.`,
+    };
+  }
+  if (unknown) {
+    return {
+      status: 'unknown',
+      label: `Tjekket ${checks.length} filer. ${unknown} kan ikke vurderes her. Detaljer staar i terminalen.`,
+    };
+  }
+  return { status: 'ok', label: `Tjekket ${checks.length} filer: alt er klar. Detaljer staar i terminalen.` };
 }
 
 function displayPicoPath(value: string): string {
