@@ -8,7 +8,7 @@ import { BUNDLED_MICROPYTHON, installBundledMicroPythonUf2, supportsBundledMicro
 import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
 import { REQUIRED_RUNTIME_FILES, type RuntimeFileCheck } from '../serial/runtimeFiles';
 import { developerModeStatus, SerialTransport, type SerialLogLevel } from '../serial/serialTransport';
-import { runOfflineMicroPython } from '../serial/offlineMicroPython';
+import { analyzeOfflineMicroPython, runOfflineMicroPython } from '../serial/offlineMicroPython';
 import { loadIdeDrafts, saveIdeDrafts, type IdeDraft } from '../lib/storage';
 import { useStore } from '../store/store';
 
@@ -28,7 +28,7 @@ interface IdeFileRow {
   path: string;
   type: 'file' | 'dir' | 'unknown';
   size?: number;
-  source: 'local' | 'pico' | 'both';
+  source: FileLocation;
   uploaded: boolean;
 }
 
@@ -39,17 +39,14 @@ interface IdeFileSeparator {
 }
 
 type IdeFileListItem = IdeFileRow | IdeFileSeparator;
-
-interface ComputerSave {
-  path: string;
-  content: string;
-}
+type FileLocation = 'local' | 'pico';
 
 interface AutocompleteState {
   items: CompletionSuggestion[];
   selected: number;
   start: number;
   end: number;
+  position: { left: number; top: number };
 }
 
 interface CompletionSuggestion {
@@ -60,6 +57,10 @@ interface CompletionSuggestion {
 const DEFAULT_CODE_PATH = '/min_kode.py';
 const DEFAULT_CODE = "print('Hej fra Pico Kontrol Panel')\n";
 const IDE_MIN_WIDTH = 980;
+
+function draftKey(source: FileLocation, nextPath: string): string {
+  return `${source}:${nextPath}`;
+}
 
 export function PicoIdeScreen() {
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
@@ -80,6 +81,7 @@ export function PicoIdeScreen() {
   const [loadingFilePath, setLoadingFilePath] = useState<string | null>(null);
   const [localFiles, setLocalFiles] = useState<IdeDraft[]>(() => ensureDefaultDraft(loadIdeDrafts()));
   const [path, setPath] = useState(DEFAULT_CODE_PATH);
+  const [activeSource, setActiveSource] = useState<FileLocation>('local');
   const [editorText, setEditorText] = useState(
     () => ensureDefaultDraft(loadIdeDrafts()).find((draft) => draft.path === DEFAULT_CODE_PATH)?.content ?? DEFAULT_CODE,
   );
@@ -98,7 +100,6 @@ export function PicoIdeScreen() {
   const [runningOnPico, setRunningOnPico] = useState(false);
   const [runningOffline, setRunningOffline] = useState(false);
   const [terminalFollow, setTerminalFollow] = useState(true);
-  const [lastComputerSave, setLastComputerSave] = useState<ComputerSave | null>(null);
   const [picoSnapshots, setPicoSnapshots] = useState<Record<string, string>>({});
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
@@ -121,7 +122,6 @@ export function PicoIdeScreen() {
   const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
   const editorLineCount = Math.max(1, editorText.split('\n').length);
   const editorByteSize = new Blob([editorText]).size;
-  const saveStatus = getEditorSaveStatus(path, editorText, localFiles, lastComputerSave, picoSnapshots);
   const runtimeSummary = getRuntimeCheckSummary(runtimeChecks);
 
   const transport = useMemo(() => {
@@ -149,25 +149,31 @@ export function PicoIdeScreen() {
     setLines((current) => [...current.slice(-140), { level, text }]);
   }
 
-  function setEditorDraft(nextPath: string, content: string) {
+  function setEditorDraft(nextPath: string, content: string, source: FileLocation = activeSource) {
     setPath(nextPath);
+    setActiveSource(source);
     setEditorText(content);
-    setSessionDrafts((current) => ({ ...current, [nextPath]: content }));
+    setSessionDrafts((current) => ({ ...current, [draftKey(source, nextPath)]: content }));
   }
 
   function updateEditorText(content: string, cursor = editorRef.current?.selectionStart ?? content.length) {
     setEditorText(content);
-    setSessionDrafts((current) => ({ ...current, [path]: content }));
+    setSessionDrafts((current) => ({ ...current, [draftKey(activeSource, path)]: content }));
     updateAutocomplete(content, cursor);
   }
 
-  function clearSessionDraft(nextPath: string) {
+  function clearSessionDraft(nextPath: string, source: FileLocation = activeSource) {
     setSessionDrafts((current) => {
-      if (!(nextPath in current)) return current;
+      const key = draftKey(source, nextPath);
+      if (!(key in current)) return current;
       const next = { ...current };
-      delete next[nextPath];
+      delete next[key];
       return next;
     });
+  }
+
+  function editorContentIsSavedOnPico(): boolean {
+    return picoSnapshots[path] === editorText;
   }
 
   function logRuntimeCheckDetails(checks: RuntimeFileCheck[]) {
@@ -194,6 +200,7 @@ export function PicoIdeScreen() {
       if (currentDraft) return currentPath;
 
       const nextDraft = currentDrafts[0];
+      setActiveSource('local');
       setEditorText(nextDraft.content);
       return nextDraft.path;
     });
@@ -473,7 +480,7 @@ export function PicoIdeScreen() {
       setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
       try {
         const text = await bleReadText(nextPath, (value, label) => setTaskProgress({ value, label }));
-        setEditorDraft(nextPath, text);
+        setEditorDraft(nextPath, text, 'pico');
         markPicoSnapshot(nextPath, text);
         finishTaskProgress('Fil indlæst');
       } catch (err) {
@@ -489,7 +496,7 @@ export function PicoIdeScreen() {
     await withFs(async (fs) => {
       setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
       const text = await fs.readText(nextPath);
-      setEditorDraft(nextPath, text);
+      setEditorDraft(nextPath, text, 'pico');
       markPicoSnapshot(nextPath, text);
       finishTaskProgress('Fil indlæst');
     });
@@ -502,6 +509,8 @@ export function PicoIdeScreen() {
 
   function saveLocalFile() {
     updateLocalDraft(path, editorText, false);
+    setActiveSource('local');
+    setSessionDrafts((current) => ({ ...current, [draftKey('local', path)]: editorText }));
     setSaveOpen(false);
     pushLine('success', `Gemte ${displayPicoPath(path)} lokalt.`);
   }
@@ -514,6 +523,8 @@ export function PicoIdeScreen() {
       try {
         await bleWriteText(path, editorText, (value, label) => setTaskProgress({ value, label }));
         markPicoSnapshot(path, editorText);
+        setActiveSource('pico');
+        setSessionDrafts((current) => ({ ...current, [draftKey('pico', path)]: editorText }));
         finishTaskProgress('Gemt på Pico via Bluetooth');
         pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
         if (isMainPyPath(path)) {
@@ -537,6 +548,8 @@ export function PicoIdeScreen() {
     await withFs(async (fs) => {
       await fs.writeText(path, editorText, (value, label) => setTaskProgress({ value, label }));
       markPicoSnapshot(path, editorText);
+      setActiveSource('pico');
+      setSessionDrafts((current) => ({ ...current, [draftKey('pico', path)]: editorText }));
       finishTaskProgress('Gemt på Pico via USB');
       pushLine('success', `Gemte ${path}.`);
       await listFiles();
@@ -552,7 +565,6 @@ export function PicoIdeScreen() {
     a.download = displayPicoPath(path);
     a.click();
     URL.revokeObjectURL(url);
-    setLastComputerSave({ path, content: editorText });
     setSaveOpen(false);
     pushLine('success', `Downloadede ${displayPicoPath(path)}.`);
   }
@@ -593,6 +605,16 @@ export function PicoIdeScreen() {
   }
 
   async function deleteFileConfirmed() {
+    if (activeSource === 'local') {
+      const next = localFiles.filter((draft) => draft.path !== path);
+      setLocalFiles(next);
+      saveIdeDrafts(next);
+      setEditorDraft(path, '', 'local');
+      clearSessionDraft(path, 'local');
+      pushLine('warning', `Slettede ${displayPicoPath(path)} fra browseren.`);
+      return;
+    }
+
     if (bleMode) {
       setBusy(true);
       try {
@@ -602,11 +624,8 @@ export function PicoIdeScreen() {
           delete next[path];
           return next;
         });
-        const next = localFiles.filter((draft) => draft.path !== path);
-        setLocalFiles(next);
-        saveIdeDrafts(next);
-        setEditorDraft(path, '');
-        clearSessionDraft(path);
+        setEditorDraft(path, '', 'pico');
+        clearSessionDraft(path, 'pico');
         pushLine('warning', `Slettede ${displayPicoPath(path)} på Pico via Bluetooth.`);
         await listFiles();
       } catch (err) {
@@ -618,12 +637,7 @@ export function PicoIdeScreen() {
     }
 
     if (!fsRef.current) {
-      const next = localFiles.filter((draft) => draft.path !== path);
-      setLocalFiles(next);
-      saveIdeDrafts(next);
-      setEditorDraft(path, '');
-      clearSessionDraft(path);
-      pushLine('warning', `Slettede ${displayPicoPath(path)} lokalt.`);
+      pushLine('error', 'Ingen Pico-forbindelse. Kan ikke slette Pico-filen.');
       return;
     }
 
@@ -634,12 +648,9 @@ export function PicoIdeScreen() {
         delete next[path];
         return next;
       });
-      const next = localFiles.filter((draft) => draft.path !== path);
-      setLocalFiles(next);
-      saveIdeDrafts(next);
       pushLine('warning', `Slettede ${path}.`);
-      setEditorDraft(path, '');
-      clearSessionDraft(path);
+      setEditorDraft(path, '', 'pico');
+      clearSessionDraft(path, 'pico');
       await listFiles();
       await checkRuntimeFiles();
     });
@@ -658,7 +669,7 @@ export function PicoIdeScreen() {
     }
 
     const text = await file.text();
-    setEditorDraft(nextPath, text);
+    setEditorDraft(nextPath, text, 'local');
     pushLine('success', `Importerede ${displayPicoPath(nextPath)} lokalt.`);
   }
 
@@ -670,7 +681,7 @@ export function PicoIdeScreen() {
   function createNewFile() {
     const nextPath = normalizePicoFileName(newFileName);
     if (!nextPath) return;
-    setEditorDraft(nextPath, '');
+    setEditorDraft(nextPath, '', 'local');
     setNewFileOpen(false);
     pushLine('info', `Ny fil klar: ${displayPicoPath(nextPath)}. Tryk Gem for at oprette den på Pico.`);
   }
@@ -689,13 +700,13 @@ export function PicoIdeScreen() {
       return;
     }
 
-    if (filePathExists(nextPath)) {
+    if (filePathExists(nextPath, renameFile.source)) {
       pushLine('error', `Der findes allerede en fil med navnet ${displayPicoPath(nextPath)}.`);
       return;
     }
 
-    const renameLocal = renameFile.source === 'local' || renameFile.source === 'both';
-    const renamePico = renameFile.source === 'pico' || renameFile.source === 'both';
+    const renameLocal = renameFile.source === 'local';
+    const renamePico = renameFile.source === 'pico';
 
     if (bleMode && renamePico && (isMainPyPath(renameFile.path) || isMainPyPath(nextPath))) {
       pushLine('error', 'main.py kan redigeres over Bluetooth, men ikke omdøbes. Gem den som main.py.');
@@ -724,10 +735,10 @@ export function PicoIdeScreen() {
         });
       }
 
-      if (path === renameFile.path) {
+      if (path === renameFile.path && activeSource === renameFile.source) {
         setPath(nextPath);
       }
-      setLastComputerSave((current) => (current?.path === renameFile.path ? { ...current, path: nextPath } : current));
+      setSessionDrafts((current) => renameSessionDraft(current, renameFile.source, renameFile.path, nextPath));
       setRenameFile(null);
       setRenameFileName('');
       pushLine('success', `Omdøbte ${displayPicoPath(renameFile.path)} til ${displayPicoPath(nextPath)}.`);
@@ -740,13 +751,16 @@ export function PicoIdeScreen() {
     }
   }
 
-  function filePathExists(nextPath: string): boolean {
-    return files.some((file) => file.path === nextPath) || localFiles.some((draft) => draft.path === nextPath);
+  function filePathExists(nextPath: string, source: FileLocation): boolean {
+    return source === 'pico'
+      ? files.some((file) => file.path === nextPath)
+      : localFiles.some((draft) => draft.path === nextPath);
   }
 
   function openFile(file: IdeFileRow) {
     if (file.type !== 'file') {
       setPath(file.path);
+      setActiveSource(file.source);
       return;
     }
 
@@ -757,17 +771,18 @@ export function PicoIdeScreen() {
 
     if (file.source === 'local') {
       const draft = localFiles.find((item) => item.path === file.path);
-      setEditorDraft(file.path, sessionDrafts[file.path] ?? draft?.content ?? '');
+      setEditorDraft(file.path, sessionDrafts[draftKey('local', file.path)] ?? draft?.content ?? '', 'local');
       return;
     }
 
-    if (Object.prototype.hasOwnProperty.call(sessionDrafts, file.path)) {
-      setEditorDraft(file.path, sessionDrafts[file.path]);
+    const picoDraftKey = draftKey('pico', file.path);
+    if (Object.prototype.hasOwnProperty.call(sessionDrafts, picoDraftKey)) {
+      setEditorDraft(file.path, sessionDrafts[picoDraftKey], 'pico');
       return;
     }
 
     if (Object.prototype.hasOwnProperty.call(picoSnapshots, file.path)) {
-      setEditorDraft(file.path, picoSnapshots[file.path]);
+      setEditorDraft(file.path, picoSnapshots[file.path], 'pico');
       return;
     }
 
@@ -886,7 +901,7 @@ export function PicoIdeScreen() {
   }
 
   function openInstalledRuntimeFile(file: RuntimeFileCheck) {
-    setEditorDraft(file.path, file.content);
+    setEditorDraft(file.path, file.content, 'pico');
     markPicoSnapshot(file.path, file.content);
     pushLine('info', `Åbnede ${file.label} i editoren.`);
   }
@@ -911,13 +926,22 @@ export function PicoIdeScreen() {
     prepareTerminalForRun();
 
     if (bleMode) {
-      await savePicoFile();
-      pushLine('warning', 'Koden er gemt via Bluetooth. Automatisk genstart/genforbindelse er næste trin i planen.');
+      pushLine('warning', 'Bluetooth-kode køres ikke direkte herfra. Gem filen på Picoen, og brug genstart for at anvende den.');
       return;
     }
 
     const repl = replRef.current;
     if (!repl) {
+      const offlineIssues = analyzeOfflineMicroPython(editorText);
+      if (offlineIssues.some((issue) => issue.level === 'error')) {
+        for (const issue of offlineIssues) {
+          const prefix = issue.line ? `Linje ${issue.line}: ` : '';
+          pushLine(issue.level === 'error' ? 'error' : 'warning', `${prefix}${issue.text}`);
+        }
+        pushLine('warning', 'Denne kode bruger Pico-specifikke funktioner og kan ikke køres i browseren. Gem den på Picoen først, og tryk derefter Kør.');
+        return;
+      }
+
       const abortController = new AbortController();
       offlineAbortRef.current = abortController;
       setBusy(true);
@@ -949,7 +973,10 @@ export function PicoIdeScreen() {
     }
 
     if (path.endsWith('.py')) {
-      await savePicoFile();
+      if (!editorContentIsSavedOnPico()) {
+        pushLine('error', `${displayPicoPath(path)} er ikke gemt på Picoen. Gem filen på Picoen først, og tryk derefter Kør.`);
+        return;
+      }
       setRunningOnPico(true);
       runningRef.current = true;
       setTerminalFollow(true);
@@ -1064,7 +1091,8 @@ export function PicoIdeScreen() {
 
     const lower = token.query.toLowerCase();
     const items = COMPLETION_SUGGESTIONS.filter((item) => item.label.toLowerCase().startsWith(lower)).slice(0, 8);
-    setAutocomplete(items.length > 0 ? { items, selected: 0, start: token.start, end: cursor } : null);
+    const position = getTextareaCaretPosition(editorRef.current, cursor);
+    setAutocomplete(items.length > 0 && position ? { items, selected: 0, start: token.start, end: cursor, position } : null);
   }
 
   function applyAutocomplete(suggestion = autocomplete?.items[autocomplete.selected]) {
@@ -1080,6 +1108,7 @@ export function PicoIdeScreen() {
       target.focus();
       target.selectionStart = caret;
       target.selectionEnd = caret;
+      updateAutocomplete(nextText, caret);
     });
   }
 
@@ -1221,17 +1250,17 @@ export function PicoIdeScreen() {
                   ? 'låst'
                   : file.type === 'dir'
                     ? 'mappe'
-                    : file.source === 'both'
-                      ? 'Pico + browser'
+                    : false
+                      ? ''
                       : file.source === 'pico'
                         ? 'Pico'
                         : 'browser';
-                const sessionText = sessionDrafts[file.path];
+                const sessionText = sessionDrafts[draftKey(file.source, file.path)];
                 const hasUnsavedChanges =
                   sessionText !== undefined &&
-                  getEditorSaveStatus(file.path, sessionText, localFiles, lastComputerSave, picoSnapshots).kind === 'dirty';
+                  sessionText !== getSavedFileContent(file, localFiles, picoSnapshots);
                 return (
-                  <div className={`ide-file-row ${path === file.path ? 'active' : ''} ${protectedInBle ? 'protected' : ''}`} key={file.path}>
+                  <div className={`ide-file-row ${path === file.path && activeSource === file.source ? 'active' : ''} ${protectedInBle ? 'protected' : ''}`} key={`${file.source}:${file.path}`}>
                     <button
                       type="button"
                       onClick={() => openFile(file)}
@@ -1239,9 +1268,8 @@ export function PicoIdeScreen() {
                       title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke åbnes her' : undefined}
                     >
                       <span>{file.name}</span>
-                      <small>
+                      <small title={hasUnsavedChanges ? 'Ikke gemte ændringer' : 'Ingen ikke gemte ændringer'}>
                         <i className={`ide-file-dirty-dot ${hasUnsavedChanges ? 'dirty' : 'clean'}`} aria-hidden="true" />
-                        {sourceLabel}
                       </small>
                     </button>
                     <button
@@ -1311,9 +1339,6 @@ export function PicoIdeScreen() {
                 {displayPicoPath(path)}
                 <small>{editorByteSize} bytes</small>
               </h2>
-              <div className={`ide-save-status save-${saveStatus.kind}`} title={saveStatus.title} aria-label={saveStatus.title}>
-                <span>{saveStatus.label}</span>
-              </div>
             </div>
             <div className="ide-mini-actions">
               <button className="btn btn-outline" type="button" onClick={runEditorCode} disabled={busy}>
@@ -1355,11 +1380,19 @@ export function PicoIdeScreen() {
                 updateAutocomplete(e.currentTarget.value, e.currentTarget.selectionStart);
               }}
               onClick={(e) => updateAutocomplete(e.currentTarget.value, e.currentTarget.selectionStart)}
-              onScroll={(e) => setEditorScroll({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft })}
+              onScroll={(e) => {
+                setEditorScroll({ top: e.currentTarget.scrollTop, left: e.currentTarget.scrollLeft });
+                if (autocomplete) updateAutocomplete(e.currentTarget.value, e.currentTarget.selectionStart);
+              }}
               spellCheck={false}
             />
             {autocomplete && (
-              <div className="ide-autocomplete" role="listbox" aria-label="Kodeforslag">
+              <div
+                className="ide-autocomplete"
+                role="listbox"
+                aria-label="Kodeforslag"
+                style={{ left: autocomplete.position.left, top: autocomplete.position.top }}
+              >
                 {autocomplete.items.map((item, index) => (
                   <button
                     className={index === autocomplete.selected ? 'active' : ''}
@@ -1669,26 +1702,134 @@ function isBleProtectedRuntimeFile(file: Pick<RuntimeFileCheck, 'path'>): boolea
 }
 
 const COMPLETION_SUGGESTIONS: CompletionSuggestion[] = [
+  ...[
+    'False',
+    'None',
+    'True',
+    'and',
+    'as',
+    'assert',
+    'async',
+    'await',
+    'break',
+    'class',
+    'continue',
+    'def',
+    'del',
+    'elif',
+    'else',
+    'except',
+    'finally',
+    'for',
+    'from',
+    'global',
+    'if',
+    'import',
+    'in',
+    'is',
+    'lambda',
+    'nonlocal',
+    'not',
+    'or',
+    'pass',
+    'raise',
+    'return',
+    'try',
+    'while',
+    'with',
+    'yield',
+  ].map((word) => ({ label: word, insert: `${word}${['for', 'if', 'while', 'def', 'class', 'elif', 'else', 'try', 'except', 'finally', 'with'].includes(word) ? ' ' : ''}` })),
+  ...[
+    'abs',
+    'all',
+    'any',
+    'bin',
+    'bool',
+    'bytearray',
+    'bytes',
+    'callable',
+    'chr',
+    'dict',
+    'dir',
+    'divmod',
+    'enumerate',
+    'eval',
+    'exec',
+    'filter',
+    'float',
+    'getattr',
+    'hasattr',
+    'hash',
+    'hex',
+    'id',
+    'int',
+    'isinstance',
+    'issubclass',
+    'iter',
+    'len',
+    'list',
+    'map',
+    'max',
+    'min',
+    'next',
+    'object',
+    'oct',
+    'open',
+    'ord',
+    'pow',
+    'print',
+    'range',
+    'repr',
+    'reversed',
+    'round',
+    'set',
+    'setattr',
+    'slice',
+    'sorted',
+    'str',
+    'sum',
+    'super',
+    'tuple',
+    'type',
+    'zip',
+  ].map((word) => ({ label: `${word}()`, insert: `${word}()` })),
+  { label: 'for i in range():', insert: 'for i in range():' },
+  { label: 'while True:', insert: 'while True:' },
+  { label: 'if True:', insert: 'if True:' },
   { label: 'time', insert: 'time' },
   { label: 'time.', insert: 'time.' },
   { label: 'time.sleep', insert: 'time.sleep' },
   { label: 'time.sleep()', insert: 'time.sleep()' },
   { label: 'time.sleep_ms()', insert: 'time.sleep_ms()' },
-  { label: 'print()', insert: 'print()' },
-  { label: 'range()', insert: 'range()' },
-  { label: 'len()', insert: 'len()' },
-  { label: 'int()', insert: 'int()' },
-  { label: 'str()', insert: 'str()' },
-  { label: 'for', insert: 'for ' },
-  { label: 'if', insert: 'if ' },
-  { label: 'def', insert: 'def ' },
-  { label: 'import time', insert: 'import time' },
-  { label: 'from machine import Pin', insert: 'from machine import Pin' },
-  { label: 'Pin()', insert: 'Pin()' },
+  { label: 'time.ticks_ms()', insert: 'time.ticks_ms()' },
+  { label: 'time.ticks_diff()', insert: 'time.ticks_diff()' },
+  { label: 'machine', insert: 'machine' },
+  { label: 'machine.', insert: 'machine.' },
   { label: 'machine.Pin', insert: 'machine.Pin' },
+  { label: 'machine.PWM', insert: 'machine.PWM' },
+  { label: 'machine.ADC', insert: 'machine.ADC' },
+  { label: 'machine.I2C', insert: 'machine.I2C' },
+  { label: 'machine.SPI', insert: 'machine.SPI' },
+  { label: 'machine.reset()', insert: 'machine.reset()' },
+  { label: 'Pin()', insert: 'Pin()' },
+  { label: 'PWM()', insert: 'PWM()' },
+  { label: 'ADC()', insert: 'ADC()' },
+  { label: 'I2C()', insert: 'I2C()' },
+  { label: 'SPI()', insert: 'SPI()' },
+  { label: 'Pin.OUT', insert: 'Pin.OUT' },
+  { label: 'Pin.IN', insert: 'Pin.IN' },
+  { label: 'Pin.PULL_UP', insert: 'Pin.PULL_UP' },
+  { label: 'import time', insert: 'import time' },
+  { label: 'import machine', insert: 'import machine' },
+  { label: 'from machine import Pin', insert: 'from machine import Pin' },
+  { label: 'from machine import Pin, PWM', insert: 'from machine import Pin, PWM' },
   { label: 'BLEPeripheral', insert: 'BLEPeripheral' },
   { label: 'PicoRobotics', insert: 'PicoRobotics' },
   { label: 'NeoPixel', insert: 'NeoPixel' },
+  { label: 'ValueError', insert: 'ValueError' },
+  { label: 'TypeError', insert: 'TypeError' },
+  { label: 'OSError', insert: 'OSError' },
+  { label: 'Exception', insert: 'Exception' },
 ];
 
 function getCompletionToken(text: string, cursor: number): { query: string; start: number } | null {
@@ -1696,6 +1837,50 @@ function getCompletionToken(text: string, cursor: number): { query: string; star
   const match = before.match(/[A-Za-z_][A-Za-z0-9_.]*$/);
   if (!match || match.index === undefined) return null;
   return { query: match[0], start: match.index };
+}
+
+function getTextareaCaretPosition(textarea: HTMLTextAreaElement | null, cursor: number): { left: number; top: number } | null {
+  if (!textarea) return null;
+  const wrap = textarea.parentElement;
+  if (!wrap) return null;
+
+  const style = window.getComputedStyle(textarea);
+  const mirror = document.createElement('div');
+  const marker = document.createElement('span');
+  const wrapRect = wrap.getBoundingClientRect();
+
+  mirror.style.position = 'absolute';
+  mirror.style.visibility = 'hidden';
+  mirror.style.pointerEvents = 'none';
+  mirror.style.whiteSpace = 'pre-wrap';
+  mirror.style.overflowWrap = 'break-word';
+  mirror.style.boxSizing = style.boxSizing;
+  mirror.style.width = `${textarea.clientWidth}px`;
+  mirror.style.padding = style.padding;
+  mirror.style.border = style.border;
+  mirror.style.font = style.font;
+  mirror.style.lineHeight = style.lineHeight;
+  mirror.style.letterSpacing = style.letterSpacing;
+  mirror.style.tabSize = style.tabSize;
+  mirror.style.left = `${textarea.offsetLeft - textarea.scrollLeft}px`;
+  mirror.style.top = `${textarea.offsetTop - textarea.scrollTop}px`;
+
+  mirror.textContent = textarea.value.slice(0, cursor);
+  marker.textContent = textarea.value.slice(cursor, cursor + 1) || ' ';
+  mirror.appendChild(marker);
+  wrap.appendChild(mirror);
+
+  const markerRect = marker.getBoundingClientRect();
+  mirror.remove();
+
+  const left = clamp(markerRect.left - wrapRect.left, 8, Math.max(8, wrap.clientWidth - 296));
+  const below = markerRect.bottom - wrapRect.top + 6;
+  const top = below + 218 > wrap.clientHeight ? Math.max(8, markerRect.top - wrapRect.top - 218) : below;
+  return { left, top };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 function highlightPython(code: string) {
@@ -1773,7 +1958,7 @@ function upsertDraft(drafts: IdeDraft[], path: string, content: string, uploaded
   return [{ path, content, uploaded, updatedAt: Date.now() }, ...next].sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-function getEditorSaveStatus(path: string, content: string, drafts: IdeDraft[], computerSave: ComputerSave | null, picoSnapshots: Record<string, string>) {
+function getEditorSaveStatus(path: string, content: string, drafts: IdeDraft[], computerSave: { path: string; content: string } | null, picoSnapshots: Record<string, string>) {
   const draft = drafts.find((item) => item.path === path);
   const places: string[] = [];
 
@@ -1804,6 +1989,11 @@ function getEditorSaveStatus(path: string, content: string, drafts: IdeDraft[], 
   };
 }
 
+function getSavedFileContent(file: IdeFileRow, drafts: IdeDraft[], picoSnapshots: Record<string, string>): string | undefined {
+  if (file.source === 'pico') return picoSnapshots[file.path];
+  return drafts.find((draft) => draft.path === file.path)?.content;
+}
+
 function runtimeStatusLabel(status: RuntimeFileCheck['status']): string {
   if (status === 'ok') return 'Nyeste';
   if (status === 'outdated') return 'Opdater';
@@ -1815,7 +2005,7 @@ function buildFileListItems(picoFiles: PicoFileEntry[], localFiles: IdeDraft[], 
   const rows = new Map<string, IdeFileRow>();
 
   for (const file of picoFiles) {
-    rows.set(file.path, {
+    rows.set(draftKey('pico', file.path), {
       kind: 'file',
       name: file.name,
       path: file.path,
@@ -1827,17 +2017,7 @@ function buildFileListItems(picoFiles: PicoFileEntry[], localFiles: IdeDraft[], 
   }
 
   for (const draft of localFiles) {
-    const existing = rows.get(draft.path);
-    if (existing) {
-      rows.set(draft.path, {
-        ...existing,
-        source: 'both',
-        uploaded: draft.uploaded,
-      });
-      continue;
-    }
-
-    rows.set(draft.path, {
+    rows.set(draftKey('local', draft.path), {
       kind: 'file',
       name: displayPicoPath(draft.path),
       path: draft.path,
@@ -1847,25 +2027,28 @@ function buildFileListItems(picoFiles: PicoFileEntry[], localFiles: IdeDraft[], 
     });
   }
 
-  for (const draftPath of Object.keys(sessionDrafts)) {
-    const existing = rows.get(draftPath);
+  for (const key of Object.keys(sessionDrafts)) {
+    const [source, ...pathParts] = key.split(':');
+    const draftPath = pathParts.join(':');
+    if ((source !== 'local' && source !== 'pico') || !draftPath) continue;
+    const existing = rows.get(key);
     if (existing) {
-      rows.set(draftPath, existing);
+      rows.set(key, existing);
       continue;
     }
 
-    rows.set(draftPath, {
+    rows.set(key, {
       kind: 'file',
       name: displayPicoPath(draftPath),
       path: draftPath,
       type: 'file',
-      source: 'local',
+      source,
       uploaded: false,
     });
   }
 
   const sortedRows = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'da'));
-  const picoRows = sortedRows.filter((row) => row.source === 'pico' || row.source === 'both');
+  const picoRows = sortedRows.filter((row) => row.source === 'pico');
   const localRows = sortedRows.filter((row) => row.source === 'local');
   const items: IdeFileListItem[] = [];
 
@@ -1883,5 +2066,13 @@ function renameSnapshot(snapshots: Record<string, string>, from: string, to: str
   if (!(from in snapshots)) return snapshots;
   const next = { ...snapshots, [to]: snapshots[from] };
   delete next[from];
+  return next;
+}
+
+function renameSessionDraft(drafts: Record<string, string>, source: FileLocation, from: string, to: string): Record<string, string> {
+  const fromKey = `${source}:${from}`;
+  if (!(fromKey in drafts)) return drafts;
+  const next = { ...drafts, [`${source}:${to}`]: drafts[fromKey] };
+  delete next[fromKey];
   return next;
 }

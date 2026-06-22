@@ -1677,8 +1677,6 @@ button:disabled {
 .ide-autocomplete {
   position: absolute;
   z-index: 5;
-  left: 56px;
-  top: 44px;
   width: min(280px, calc(100% - 72px));
   max-height: 210px;
   overflow-y: auto;
