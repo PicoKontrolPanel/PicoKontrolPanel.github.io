@@ -386,7 +386,7 @@ export function PicoIdeScreen() {
         const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
         checks.push({ ...file, status: ok ? 'ok' : 'outdated', detail: ok ? 'Matcher appens version' : 'Kan installeres via Bluetooth' });
       } catch {
-        checks.push({ ...file, status: 'missing', detail: 'Mangler paa Pico' });
+        checks.push({ ...file, status: 'missing', detail: 'Mangler på Pico' });
       }
     }
     return normalizeRuntimeChecks(checks);
@@ -482,7 +482,7 @@ export function PicoIdeScreen() {
         pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
         if (isMainPyPath(path)) {
           setMainRestartOpen(true);
-          pushLine('warning', 'main.py er gemt. Genstart Picoen for at koere den nye version.');
+          pushLine('warning', 'main.py er gemt. Genstart Picoen for at køre den nye version.');
         }
         await listFiles();
       } catch (err) {
@@ -529,13 +529,13 @@ export function PicoIdeScreen() {
       const reconnected = await bleRestartAndReconnect(target);
       if (reconnected) {
         finishTaskProgress('Pico genforbundet');
-        pushLine('success', target === 'control' ? 'Pico genforbundet. Aabner kontrolpanelet.' : 'Pico genforbundet til Kodevaerkstedet.');
+        pushLine('success', target === 'control' ? 'Pico genforbundet. Åbner kontrolpanelet.' : 'Pico genforbundet til Kodeværkstedet.');
         if (target === 'ide') {
           await listFiles();
         }
       } else {
         setTaskProgress(null);
-        pushLine('warning', 'Automatisk genforbindelse lykkedes ikke. Vaelg Picoen fra dashboardet.');
+        pushLine('warning', 'Automatisk genforbindelse lykkedes ikke. Vælg Picoen fra dashboardet.');
       }
     } catch (err) {
       setTaskProgress(null);
@@ -663,7 +663,7 @@ export function PicoIdeScreen() {
     const renamePico = renameFile.source === 'pico' || renameFile.source === 'both';
 
     if (bleMode && renamePico && (isMainPyPath(renameFile.path) || isMainPyPath(nextPath))) {
-      pushLine('error', 'main.py kan redigeres over Bluetooth, men ikke omdoebes. Gem den som main.py.');
+      pushLine('error', 'main.py kan redigeres over Bluetooth, men ikke omdøbes. Gem den som main.py.');
       return;
     }
 
@@ -695,10 +695,10 @@ export function PicoIdeScreen() {
       setLastComputerSave((current) => (current?.path === renameFile.path ? { ...current, path: nextPath } : current));
       setRenameFile(null);
       setRenameFileName('');
-      pushLine('success', `Omdobte ${displayPicoPath(renameFile.path)} til ${displayPicoPath(nextPath)}.`);
+      pushLine('success', `Omdøbte ${displayPicoPath(renameFile.path)} til ${displayPicoPath(nextPath)}.`);
       if (renamePico) await listFiles();
     } catch (err) {
-      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke omdÃ¸be filen.');
+      pushLine('error', err instanceof Error ? err.message : 'Kunne ikke omdøbe filen.');
     } finally {
       setTaskProgress(null);
       setBusy(false);
@@ -774,6 +774,7 @@ export function PicoIdeScreen() {
           return;
         }
 
+        let installedLibrary: RuntimeFileCheck | null = null;
         setTaskProgress({ value: 0, label: 'Starter installation...' });
         for (const [index, file] of targets.entries()) {
           pushLine('info', `Installerer ${file.label} via Bluetooth...`);
@@ -787,13 +788,19 @@ export function PicoIdeScreen() {
           });
           markPicoSnapshot(file.path, file.content);
           pushLine('success', `Installerede ${file.label}.`);
+          if (file.kind === 'library') {
+            installedLibrary = file;
+          }
           if (isMainPyPath(file.path)) {
             setMainRestartOpen(true);
           }
         }
-        finishTaskProgress('Installation faerdig');
+        finishTaskProgress('Installation færdig');
         await listFiles();
         await checkRuntimeFiles();
+        if (installedLibrary) {
+          openInstalledRuntimeFile(installedLibrary);
+        }
       } catch (err) {
         setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE installation fejlede.');
@@ -814,6 +821,7 @@ export function PicoIdeScreen() {
         return;
       }
 
+      let installedLibrary: RuntimeFileCheck | null = null;
       setTaskProgress({ value: 0, label: 'Starter installation...' });
       for (const [index, file] of targets.entries()) {
         pushLine('info', `Installerer ${file.label}...`);
@@ -826,11 +834,24 @@ export function PicoIdeScreen() {
           });
         });
         pushLine('success', `Installerede ${file.label}.`);
+        if (file.kind === 'library') {
+          installedLibrary = file;
+        }
       }
-      finishTaskProgress('Installation faerdig');
+      finishTaskProgress('Installation færdig');
       await listFiles();
       await checkRuntimeFiles();
+      if (installedLibrary) {
+        openInstalledRuntimeFile(installedLibrary);
+      }
     });
+  }
+
+  function openInstalledRuntimeFile(file: RuntimeFileCheck) {
+    setPath(file.path);
+    setEditorText(file.content);
+    markPicoSnapshot(file.path, file.content);
+    pushLine('info', `Åbnede ${file.label} i editoren.`);
   }
   function updateInstallSelection(file: RuntimeFileCheck, checked: boolean) {
     setInstallSelection((current) => {
@@ -972,11 +993,10 @@ export function PicoIdeScreen() {
               <span>
                 <strong>
                   {file.label}
-                  <em className={`ide-install-status status-${file.status}`}>{protectedInBle ? 'USB' : runtimeStatusLabel(file.status)}</em>
+                  {file.kind === 'library' && (
+                    <em className={`ide-install-status status-${file.status}`}>{protectedInBle ? 'USB' : runtimeStatusLabel(file.status)}</em>
+                  )}
                 </strong>
-                <small>
-                  {file.kind === 'library' ? 'Bibliotek' : 'Startprogram'} - {protectedInBle ? 'Opdateres via USB' : file.detail}
-                </small>
                 <small>{file.description}</small>
               </span>
             </label>
@@ -1067,7 +1087,7 @@ export function PicoIdeScreen() {
           <div className="ide-size-gate-panel">
             <h2 id="ide-size-title">Brug en bærbar for at bruge Kodeværkstedet</h2>
             <p>
-              Denne skærmen er for lille, så du skal åbne Kodevaerkstedet
+              Denne skærm er for lille, så du skal åbne Kodeværkstedet
               på en bærbar eller en større skærm.
             </p>
           </div>
@@ -1131,8 +1151,8 @@ export function PicoIdeScreen() {
                       type="button"
                       onClick={() => openRenameFile(file)}
                       disabled={file.type !== 'file' || busy || protectedInBle}
-                      aria-label={`Omdob ${file.name}`}
-                      title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke ændres her' : 'Omdob fil'}
+                      aria-label={`Omdøb ${file.name}`}
+                      title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke ændres her' : 'Omdøb fil'}
                     >
                       <Glyph name="edit" size={16} />
                     </button>
@@ -1319,7 +1339,7 @@ export function PicoIdeScreen() {
         <Modal title="main.py er gemt" onClose={() => setMainRestartOpen(false)}>
           <div className="settings-stack">
             <p className="confirm-message">
-              Picoen koerer stadig den gamle kode. Genstart Picoen for at anvende den nye main.py. Appen forsoeger automatisk at genforbinde bagefter.
+              Picoen kører stadig den gamle kode. Genstart Picoen for at anvende den nye main.py. Appen forsøger automatisk at genforbinde bagefter.
             </p>
             <button className="btn btn-primary btn-block" type="button" onClick={() => void applyMainPyRestart('control')} disabled={busy}>
               Genstart og åbn kontrolpanel
@@ -1396,7 +1416,7 @@ export function PicoIdeScreen() {
       )}
 
       {renameFile && (
-        <Modal title="Omdob fil" onClose={() => setRenameFile(null)}>
+        <Modal title="Omdøb fil" onClose={() => setRenameFile(null)}>
           <form
             className="ide-new-file-form"
             onSubmit={(e) => {
@@ -1416,7 +1436,7 @@ export function PicoIdeScreen() {
             </div>
             <p>Brug filendelser som .py, .txt, .json eller .csv.</p>
             <button className="btn btn-primary" type="submit" disabled={!normalizeEditableFileName(renameFileName) || busy}>
-              Omdob
+              Omdøb
             </button>
           </form>
         </Modal>
@@ -1501,16 +1521,16 @@ function getRuntimeCheckSummary(checks: RuntimeFileCheck[]): { status: RuntimeFi
   if (missing || outdated) {
     return {
       status: 'outdated',
-      label: `Tjekket ${checks.length} filer: ${missing} mangler, ${outdated} skal opdateres. Detaljer staar i terminalen.`,
+      label: `Tjekket ${checks.length} filer: ${missing} mangler, ${outdated} skal opdateres. Detaljer står i terminalen.`,
     };
   }
   if (unknown) {
     return {
       status: 'unknown',
-      label: `Tjekket ${checks.length} filer. ${unknown} kan ikke vurderes her. Detaljer staar i terminalen.`,
+      label: `Tjekket ${checks.length} filer. ${unknown} kan ikke vurderes her. Detaljer står i terminalen.`,
     };
   }
-  return { status: 'ok', label: `Tjekket ${checks.length} filer: alt er klar. Detaljer staar i terminalen.` };
+  return { status: 'ok', label: `Tjekket ${checks.length} filer: alt er klar. Detaljer står i terminalen.` };
 }
 
 function displayPicoPath(value: string): string {
