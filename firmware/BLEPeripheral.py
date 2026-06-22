@@ -317,7 +317,15 @@ class BLEPeripheral:
             print("Error saving settings:", e)
 
     # -------------------- File I/O: Layout --------------------
-    def save_layout_to_file(self):
+    def _merge_base_with_layout_override(self, base, override):
+        """Keep layout placement from Layout.txt, but use main.py controls as truth."""
+        ctrl = dict(base)
+        for key in ("x", "y", "width", "height", "rotation"):
+            if key in override:
+                ctrl[key] = override[key]
+        return ctrl
+
+    def save_layout_to_file(self, notify=True):
         """Writes Layout.txt in grid format; 'n' for None.
 
         Writes to a temp file and renames it into place so a power loss
@@ -352,14 +360,16 @@ class BLEPeripheral:
                     pass
                 os.rename(tmp_file, self._layout_file)
             print("Layout saved successfully.")
-            self.send_with_retry("ACK: Layout saved.\n", max_attempts=3)
+            if notify:
+                self.send_with_retry("ACK: Layout saved.\n", max_attempts=3)
         except Exception as e:
             print("Error saving layout:", e)
             try:
                 os.remove(tmp_file)
             except OSError:
                 pass
-            self.send_with_retry("ERR: Failed to save layout.\n", max_attempts=3)
+            if notify:
+                self.send_with_retry("ERR: Failed to save layout.\n", max_attempts=3)
 
     def load_layout_from_file(self):
         """Loads Layout.txt and merges onto base controls.
@@ -376,7 +386,7 @@ class BLEPeripheral:
             # No layout file yet (first boot): seed defaults on disk.
             print("Layout file not found, seeding defaults. Err:", e)
             self.controls = [dict(c) for c in self.base_controls]
-            self.save_layout_to_file()
+            self.save_layout_to_file(notify=False)
             return
         except Exception as e:
             # File present but unreadable: fall back in memory only and leave
@@ -438,14 +448,15 @@ class BLEPeripheral:
         for base in self.base_controls:
             c = dict(base)
             if c["name"] in overrides:
-                c.update(overrides[c["name"]])
+                c = self._merge_base_with_layout_override(c, overrides[c["name"]])
             updated.append(c)
             known.add(c["name"])
-        for name, ov in overrides.items():
-            if name not in known:
-                updated.append(ov)
+        dropped = len([name for name in overrides if name not in known])
 
         self.controls = updated
+        self.save_layout_to_file(notify=False)
+        if dropped:
+            print("Dropped stale layout controls:", dropped)
         print("Layout loaded. Controls:", len(self.controls))
 
     # -------------------- BLE IRQ / I/O --------------------
@@ -969,16 +980,16 @@ class BLEPeripheral:
             for base in self.base_controls:
                 c = dict(base)
                 if c["name"] in overrides:
-                    c.update(overrides[c["name"]])
+                    c = self._merge_base_with_layout_override(c, overrides[c["name"]])
                 updated.append(c)
                 names.add(c["name"])
-            for name, ov in overrides.items():
-                if name not in names:
-                    updated.append(ov)
+            dropped = len([name for name in overrides if name not in names])
 
             self.controls = updated
             self.save_layout_to_file()
             self._send_reliable_stream(["LAYOUT_SAVED"])
+            if dropped:
+                print("Dropped stale layout controls:", dropped)
             print("Layout updated successfully.")
         except Exception as e:
             print("Error parsing layout update:", e)
@@ -1039,7 +1050,7 @@ class BLEPeripheral:
             return
         try:
             offset = max(0, int(parts[2]))
-            length = max(1, min(128, int(parts[3])))
+            length = max(1, min(192, int(parts[3])))
         except:
             self._send_reliable_stream(["ERR: Bad fs_read_page range", "__END__"])
             return

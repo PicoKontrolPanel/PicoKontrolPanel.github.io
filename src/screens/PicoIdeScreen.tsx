@@ -122,7 +122,6 @@ export function PicoIdeScreen() {
   const canInstallMicroPythonDirectly = supportsBundledMicroPythonInstall();
   const editorLineCount = Math.max(1, editorText.split('\n').length);
   const editorByteSize = new Blob([editorText]).size;
-  const runtimeSummary = getRuntimeCheckSummary(runtimeChecks);
 
   const transport = useMemo(() => {
     const serial = new SerialTransport({
@@ -263,12 +262,12 @@ export function PicoIdeScreen() {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
       event.preventDefault();
       if (!busy && path.trim() && !screenTooSmall && !saveOpen && !renameFile && !newFileOpen) {
-        saveFile();
+        void quickSaveCurrentFile();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [busy, path, screenTooSmall, saveOpen, renameFile, newFileOpen]);
+  }, [activeSource, bleMode, busy, connected, editorText, path, screenTooSmall, saveOpen, renameFile, newFileOpen]);
 
   function updateLocalDraft(nextPath: string, content: string, uploaded: boolean) {
     setLocalFiles((current) => {
@@ -507,6 +506,19 @@ export function PicoIdeScreen() {
     setSaveOpen(true);
   }
 
+  async function quickSaveCurrentFile() {
+    if (activeSource === 'pico') {
+      if (!connected && !bleMode) {
+        pushLine('error', 'Ingen Pico-forbindelse. Brug Gem for at vælge en anden placering.');
+        return;
+      }
+      await savePicoFile();
+      return;
+    }
+
+    saveLocalFile();
+  }
+
   function saveLocalFile() {
     updateLocalDraft(path, editorText, false);
     setActiveSource('local');
@@ -515,7 +527,7 @@ export function PicoIdeScreen() {
     pushLine('success', `Gemte ${displayPicoPath(path)} lokalt.`);
   }
 
-  async function savePicoFile() {
+  async function savePicoFile(): Promise<boolean> {
     setSaveOpen(false);
     setTaskProgress({ value: 0, label: 'Starter gemning...' });
     if (bleMode) {
@@ -532,19 +544,21 @@ export function PicoIdeScreen() {
           pushLine('warning', 'main.py er gemt. Genstart Picoen for at køre den nye version.');
         }
         await listFiles();
+        return true;
       } catch (err) {
         setTaskProgress(null);
         pushLine('error', err instanceof Error ? err.message : 'BLE gem fejlede.');
+        return false;
       } finally {
         setBusy(false);
       }
-      return;
     }
 
     if (!fsRef.current) {
       setTaskProgress(null);
-      return;
+      return false;
     }
+    let saved = false;
     await withFs(async (fs) => {
       await fs.writeText(path, editorText, (value, label) => setTaskProgress({ value, label }));
       markPicoSnapshot(path, editorText);
@@ -554,7 +568,9 @@ export function PicoIdeScreen() {
       pushLine('success', `Gemte ${path}.`);
       await listFiles();
       await checkRuntimeFiles();
+      saved = true;
     });
+    return saved;
   }
 
   function downloadFile() {
@@ -593,40 +609,46 @@ export function PicoIdeScreen() {
     }
   }
 
-  function deleteFile() {
+  function deleteFile(file?: IdeFileRow) {
+    const target: Pick<IdeFileRow, 'path' | 'source'> = file ?? { path, source: activeSource };
+    const location = target.source === 'pico' ? 'Pico' : 'browser';
     askConfirm({
       title: 'Slet fil',
-      message: `Vil du slette ${displayPicoPath(path)}?`,
+      message: `Vil du slette ${displayPicoPath(target.path)} fra ${location}?`,
       confirmLabel: 'Slet',
       onConfirm: () => {
-        void deleteFileConfirmed();
+        void deleteFileConfirmed(target);
       },
     });
   }
 
-  async function deleteFileConfirmed() {
-    if (activeSource === 'local') {
-      const next = localFiles.filter((draft) => draft.path !== path);
+  async function deleteFileConfirmed(target: Pick<IdeFileRow, 'path' | 'source'>) {
+    const targetPath = target.path;
+    const targetSource = target.source;
+    const deletingOpenFile = targetPath === path && targetSource === activeSource;
+
+    if (targetSource === 'local') {
+      const next = localFiles.filter((draft) => draft.path !== targetPath);
       setLocalFiles(next);
       saveIdeDrafts(next);
-      setEditorDraft(path, '', 'local');
-      clearSessionDraft(path, 'local');
-      pushLine('warning', `Slettede ${displayPicoPath(path)} fra browseren.`);
+      if (deletingOpenFile) setEditorDraft(targetPath, '', 'local');
+      clearSessionDraft(targetPath, 'local');
+      pushLine('warning', `Slettede ${displayPicoPath(targetPath)} fra browseren.`);
       return;
     }
 
     if (bleMode) {
       setBusy(true);
       try {
-        await bleDeleteFile(path);
+        await bleDeleteFile(targetPath);
         setPicoSnapshots((current) => {
           const next = { ...current };
-          delete next[path];
+          delete next[targetPath];
           return next;
         });
-        setEditorDraft(path, '', 'pico');
-        clearSessionDraft(path, 'pico');
-        pushLine('warning', `Slettede ${displayPicoPath(path)} på Pico via Bluetooth.`);
+        if (deletingOpenFile) setEditorDraft(targetPath, '', 'pico');
+        clearSessionDraft(targetPath, 'pico');
+        pushLine('warning', `Slettede ${displayPicoPath(targetPath)} på Pico via Bluetooth.`);
         await listFiles();
       } catch (err) {
         pushLine('error', err instanceof Error ? err.message : 'BLE sletning fejlede.');
@@ -642,15 +664,15 @@ export function PicoIdeScreen() {
     }
 
     await withFs(async (fs) => {
-      await fs.delete(path);
+      await fs.delete(targetPath);
       setPicoSnapshots((current) => {
         const next = { ...current };
-        delete next[path];
+        delete next[targetPath];
         return next;
       });
-      pushLine('warning', `Slettede ${path}.`);
-      setEditorDraft(path, '', 'pico');
-      clearSessionDraft(path, 'pico');
+      pushLine('warning', `Slettede ${targetPath}.`);
+      if (deletingOpenFile) setEditorDraft(targetPath, '', 'pico');
+      clearSessionDraft(targetPath, 'pico');
       await listFiles();
       await checkRuntimeFiles();
     });
@@ -973,10 +995,19 @@ export function PicoIdeScreen() {
     }
 
     if (path.endsWith('.py')) {
-      if (!editorContentIsSavedOnPico()) {
-        pushLine('error', `${displayPicoPath(path)} er ikke gemt på Picoen. Gem filen på Picoen først, og tryk derefter Kør.`);
+      if (activeSource !== 'pico') {
+        pushLine('error', `${displayPicoPath(path)} er gemt i browseren. Gem den manuelt på Picoen før den kan køres på Picoen.`);
         return;
       }
+      if (!editorContentIsSavedOnPico()) {
+        pushLine('info', `${displayPicoPath(path)} har ikke gemte ændringer. Gemmer på Picoen før kørsel...`);
+        const saved = await savePicoFile();
+        if (!saved) {
+          pushLine('error', 'Pico-forbindelsen blev afbrudt under gemning.');
+          return;
+        }
+      }
+      if (busy) return;
       setRunningOnPico(true);
       runningRef.current = true;
       setTerminalFollow(true);
@@ -1100,7 +1131,7 @@ export function PicoIdeScreen() {
     const nextText = editorText.slice(0, autocomplete.start) + suggestion.insert + editorText.slice(autocomplete.end);
     const caret = autocomplete.start + suggestion.insert.length - (suggestion.insert.endsWith('()') ? 1 : 0);
     setEditorText(nextText);
-    setSessionDrafts((current) => ({ ...current, [path]: nextText }));
+    setSessionDrafts((current) => ({ ...current, [draftKey(activeSource, path)]: nextText }));
     setAutocomplete(null);
     window.requestAnimationFrame(() => {
       const target = editorRef.current;
@@ -1115,7 +1146,7 @@ export function PicoIdeScreen() {
   function onEditorKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
-      if (!busy && path.trim()) saveFile();
+      if (!busy && path.trim()) void quickSaveCurrentFile();
       return;
     }
 
@@ -1246,15 +1277,6 @@ export function PicoIdeScreen() {
                 }
 
                 const protectedInBle = bleMode && isBleProtectedRuntimeFile(file);
-                const sourceLabel = protectedInBle
-                  ? 'låst'
-                  : file.type === 'dir'
-                    ? 'mappe'
-                    : false
-                      ? ''
-                      : file.source === 'pico'
-                        ? 'Pico'
-                        : 'browser';
                 const sessionText = sessionDrafts[draftKey(file.source, file.path)];
                 const hasUnsavedChanges =
                   sessionText !== undefined &&
@@ -1281,6 +1303,16 @@ export function PicoIdeScreen() {
                       title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke ændres her' : 'Omdøb fil'}
                     >
                       <Glyph name="edit" size={16} />
+                    </button>
+                    <button
+                      className="ide-file-delete"
+                      type="button"
+                      onClick={() => deleteFile(file)}
+                      disabled={file.type !== 'file' || busy || protectedInBle}
+                      aria-label={`Slet ${file.name}`}
+                      title={protectedInBle ? 'Holder Bluetooth-forbindelsen i gang og kan ikke ændres her' : 'Slet fil'}
+                    >
+                      <Glyph name="delete" size={16} />
                     </button>
                   </div>
                 );
@@ -1312,13 +1344,17 @@ export function PicoIdeScreen() {
           )}
           {bleMode && (
             <div className="ide-actions">
+              <button className="btn btn-primary ide-connection-state" type="button" disabled>
+                <Glyph name="power" size={22} />
+                Bluetooth forbundet
+              </button>
               <button className="btn btn-primary" type="button" onClick={installRuntimeFiles} disabled={busy}>
                 Installer
               </button>
             </div>
           )}
           <div className="ide-runtime">
-            <div className="ide-mini-actions">
+            <div className={`ide-mini-actions ${bleMode ? 'single' : ''}`}>
               <button className="btn btn-outline" type="button" onClick={checkRuntimeFiles} disabled={(!connected && !bleMode) || busy}>
                 Tjek filer
               </button>
@@ -1328,7 +1364,6 @@ export function PicoIdeScreen() {
                 </button>
               )}
             </div>
-            <p className={`ide-runtime-summary runtime-${runtimeSummary.status}`}>{runtimeSummary.label}</p>
           </div>
         </section>
 
@@ -1350,7 +1385,7 @@ export function PicoIdeScreen() {
               <button className="btn btn-primary" type="button" onClick={saveFile} disabled={busy || !path.trim()}>
                 Gem
               </button>
-              <button className="btn btn-outline btn-danger" type="button" onClick={deleteFile} disabled={busy || !path.trim()}>
+              <button className="btn btn-outline btn-danger" type="button" onClick={() => deleteFile()} disabled={busy || !path.trim()}>
                 Slet
               </button>
             </div>
@@ -1469,7 +1504,7 @@ export function PicoIdeScreen() {
             <button className="btn btn-primary" type="button" onClick={saveLocalFile}>
               Gem i browser
             </button>
-              <button className="btn btn-primary" type="button" onClick={savePicoFile} disabled={(!connected && !bleMode) || busy}>
+              <button className="btn btn-primary" type="button" onClick={() => void savePicoFile()} disabled={(!connected && !bleMode) || busy}>
                 Gem på Pico
               </button>
             <button className="btn btn-outline" type="button" onClick={downloadFile}>
@@ -1664,29 +1699,6 @@ function runtimeCheckLogLevel(status: RuntimeFileCheck['status']): SerialLogLeve
   if (status === 'ok') return 'success';
   if (status === 'unknown') return 'info';
   return 'warning';
-}
-
-function getRuntimeCheckSummary(checks: RuntimeFileCheck[]): { status: RuntimeFileCheck['status']; label: string } {
-  if (checks.length === 0) {
-    return { status: 'unknown', label: 'Tjek filer for at se status. Detaljer vises i terminalen.' };
-  }
-
-  const missing = checks.filter((check) => check.status === 'missing').length;
-  const outdated = checks.filter((check) => check.status === 'outdated').length;
-  const unknown = checks.filter((check) => check.status === 'unknown').length;
-  if (missing || outdated) {
-    return {
-      status: 'outdated',
-      label: `Tjekket ${checks.length} filer: ${missing} mangler, ${outdated} skal opdateres. Detaljer står i terminalen.`,
-    };
-  }
-  if (unknown) {
-    return {
-      status: 'unknown',
-      label: `Tjekket ${checks.length} filer. ${unknown} kan ikke vurderes her. Detaljer står i terminalen.`,
-    };
-  }
-  return { status: 'ok', label: `Tjekket ${checks.length} filer: alt er klar. Detaljer står i terminalen.` };
 }
 
 function displayPicoPath(value: string): string {
