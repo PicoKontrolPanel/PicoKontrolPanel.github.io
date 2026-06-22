@@ -23,6 +23,7 @@ export function SplashScreen() {
 
   return (
     <div className={`screen splash-screen splash-${variant}`} aria-label="Teknologiskolen starter">
+      <div className="splash-white-cover" />
       <div className="splash-red-field" />
       <div className="splash-brand" aria-hidden="true">
         {target && isFirstRun && <div className="splash-mark splash-name">Teknologiskolen</div>}

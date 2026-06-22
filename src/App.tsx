@@ -16,6 +16,7 @@ import { Toast } from './components/Toast';
 
 function App() {
   const screen = useStore((s) => s.screen);
+  const splashTarget = useStore((s) => s.splashTarget);
   const init = useStore((s) => s.init);
   const sideMenuOpen = useStore((s) => s.sideMenuOpen);
   const debuggerOpen = useStore((s) => s.debuggerOpen);
@@ -37,6 +38,8 @@ function App() {
 
   return (
     <div className="app">
+      {screen === 'splash' && splashTarget === 'intro' && <IntroScreen />}
+      {screen === 'splash' && splashTarget === 'dashboard' && <DashboardScreen />}
       {screen === 'splash' && <SplashScreen />}
       {screen === 'intro' && <IntroScreen />}
       {screen === 'dashboard' && <DashboardScreen />}
