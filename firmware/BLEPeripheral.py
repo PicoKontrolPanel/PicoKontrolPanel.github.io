@@ -524,7 +524,7 @@ class BLEPeripheral:
         except Exception as e:
             print("Notify failed:", e)
 
-    def send_with_retry(self, msg, max_attempts=3, chunk_size=20):
+    def send_with_retry(self, msg, max_attempts=3, chunk_size=20, chunk_gap_ms=3):
         """Send an important protocol message, retrying on failure."""
         for attempt in range(1, max_attempts + 1):
             try:
@@ -539,6 +539,8 @@ class BLEPeripheral:
                     part = data[i:i + chunk_size]
                     self.ble.gatts_write(self.handle_notify, part)
                     self.ble.gatts_notify(self.conn_handle, self.handle_notify, part)
+                    if i + chunk_size < len(data) and chunk_gap_ms > 0:
+                        time.sleep_ms(chunk_gap_ms)
 
                 self._log_sent(msg)
                 return True

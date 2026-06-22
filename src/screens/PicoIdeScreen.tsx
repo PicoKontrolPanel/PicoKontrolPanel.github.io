@@ -292,12 +292,12 @@ export function PicoIdeScreen() {
 
   async function installMicroPython() {
     setBusy(true);
+    setMicroPythonOpen(false);
     setTaskProgress({ value: 10, label: 'Klargør MicroPython...' });
     try {
       const driveName = await installBundledMicroPythonUf2((value, label) => setTaskProgress({ value, label }));
       finishTaskProgress('MicroPython kopieret');
       pushLine('success', `Kopierede ${BUNDLED_MICROPYTHON.version} til ${driveName}. Picoen genstarter nu.`);
-      setMicroPythonOpen(false);
     } catch (err) {
       setTaskProgress(null);
       pushLine('error', err instanceof Error ? err.message : 'MicroPython installation mislykkedes.');
@@ -434,7 +434,7 @@ export function PicoIdeScreen() {
       setBusy(true);
       setTaskProgress({ value: 12, label: `Indlæser ${displayPicoPath(nextPath)}...` });
       try {
-        const text = await bleReadText(nextPath);
+        const text = await bleReadText(nextPath, (value, label) => setTaskProgress({ value, label }));
         setPath(nextPath);
         setEditorText(text);
         markPicoSnapshot(nextPath, text);
@@ -471,13 +471,13 @@ export function PicoIdeScreen() {
   }
 
   async function savePicoFile() {
+    setSaveOpen(false);
     setTaskProgress({ value: 0, label: 'Starter gemning...' });
     if (bleMode) {
       setBusy(true);
       try {
         await bleWriteText(path, editorText, (value, label) => setTaskProgress({ value, label }));
         markPicoSnapshot(path, editorText);
-        setSaveOpen(false);
         finishTaskProgress('Gemt på Pico via Bluetooth');
         pushLine('success', `Gemte ${displayPicoPath(path)} på Pico via Bluetooth.`);
         if (isMainPyPath(path)) {
@@ -506,7 +506,6 @@ export function PicoIdeScreen() {
       await listFiles();
       await checkRuntimeFiles();
     });
-    setSaveOpen(false);
   }
 
   function downloadFile() {
@@ -524,11 +523,11 @@ export function PicoIdeScreen() {
 
   async function applyMainPyRestart(target: 'control' | 'ide') {
     setBusy(true);
+    setMainRestartOpen(false);
     setTaskProgress({ value: 10, label: 'Genstarter Pico...' });
     try {
       const reconnected = await bleRestartAndReconnect(target);
       if (reconnected) {
-        setMainRestartOpen(false);
         finishTaskProgress('Pico genforbundet');
         pushLine('success', target === 'control' ? 'Pico genforbundet. Aabner kontrolpanelet.' : 'Pico genforbundet til Kodevaerkstedet.');
         if (target === 'ide') {
@@ -1297,7 +1296,6 @@ export function PicoIdeScreen() {
               <button className="btn btn-primary" type="button" onClick={savePicoFile} disabled={(!connected && !bleMode) || busy}>
                 Gem på Pico
               </button>
-            {renderTaskProgress()}
             <button className="btn btn-outline" type="button" onClick={downloadFile}>
               Download til computer
             </button>
@@ -1323,12 +1321,11 @@ export function PicoIdeScreen() {
             <p className="confirm-message">
               Picoen koerer stadig den gamle kode. Genstart Picoen for at anvende den nye main.py. Appen forsoeger automatisk at genforbinde bagefter.
             </p>
-            {renderTaskProgress()}
             <button className="btn btn-primary btn-block" type="button" onClick={() => void applyMainPyRestart('control')} disabled={busy}>
-              Genstart og aabn kontrolpanel
+              Genstart og åbn kontrolpanel
             </button>
             <button className="btn btn-outline btn-block" type="button" onClick={() => void applyMainPyRestart('ide')} disabled={busy}>
-              Genstart og bliv i Kodevaerksted
+              Genstart og bliv i Kodeværksted
             </button>
             <button className="btn btn-outline btn-block" type="button" onClick={() => setMainRestartOpen(false)} disabled={busy}>
               Senere
@@ -1349,7 +1346,6 @@ export function PicoIdeScreen() {
             <small className="muted-note">
               Indbygget: {BUNDLED_MICROPYTHON.board}, {BUNDLED_MICROPYTHON.version} ({BUNDLED_MICROPYTHON.date}).
             </small>
-            {renderTaskProgress()}
             {canInstallMicroPythonDirectly ? (
               <button className="btn btn-primary btn-block" type="button" onClick={installMicroPython} disabled={busy}>
                 Installer på Pico
@@ -1419,7 +1415,6 @@ export function PicoIdeScreen() {
               />
             </div>
             <p>Brug filendelser som .py, .txt, .json eller .csv.</p>
-            {renderTaskProgress()}
             <button className="btn btn-primary" type="submit" disabled={!normalizeEditableFileName(renameFileName) || busy}>
               Omdob
             </button>

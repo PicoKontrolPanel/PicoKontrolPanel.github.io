@@ -36,6 +36,7 @@ export interface BleFileEntry {
 }
 
 export type FileWriteProgress = (value: number, label: string) => void;
+export type FileReadProgress = (value: number, label: string) => void;
 
 interface Waiter {
   match: (line: string) => boolean;
@@ -46,7 +47,9 @@ interface Waiter {
 
 const HANDSHAKE_TIMEOUT = 6000;
 const CONTROL_GAP_MS = 15;
-const FILE_READ_PAGE_SIZE = 96;
+const FILE_READ_FALLBACK_PAGE_SIZES = [128, 64, 32] as const;
+const FILE_READ_PAGE_ATTEMPTS = 4;
+const FILE_TRANSFER_TIMEOUT = HANDSHAKE_TIMEOUT * 4;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -383,7 +386,7 @@ export class PicoProtocol {
     lines.push('__END__');
 
     const saved = this.waitFor((l) => l === 'LAYOUT_SAVED', HANDSHAKE_TIMEOUT * 2, 'LAYOUT_SAVED');
-    this.stream.sendReliable(lines);
+    await this.stream.sendReliable(lines);
     await saved;
   }
 
@@ -406,17 +409,18 @@ export class PicoProtocol {
       });
   }
 
-  async readText(path: string): Promise<string> {
-    return this.readTextPaged(path);
+  async readText(path: string, onProgress?: FileReadProgress): Promise<string> {
+    return this.readTextPaged(path, onProgress);
   }
 
-  private async readTextPaged(path: string): Promise<string> {
+  private async readTextPaged(path: string, onProgress?: FileReadProgress): Promise<string> {
     let offset = 0;
     let total: number | null = null;
     let hex = '';
+    onProgress?.(5, `Starter læsning af ${path}...`);
 
     for (let page = 0; page < 512; page += 1) {
-      const lines = await this.collectLines(`fs_read_page,${protocolField(path)},${offset},${FILE_READ_PAGE_SIZE}`, HANDSHAKE_TIMEOUT * 2, 'fs_read_page');
+      const lines = await this.readPageWithRetry(path, offset);
       const error = lines.find((line) => line.startsWith('ERR'));
       if (error) throw new Error(error);
 
@@ -433,13 +437,39 @@ export class PicoProtocol {
       total = nextTotal;
       hex += hexChunk;
       offset += Math.floor(hexChunk.length / 2);
+      const value = total > 0 ? 8 + Math.min(87, Math.round((offset / total) * 87)) : 95;
+      onProgress?.(value, `Læser ${Math.min(offset, total)}/${total} bytes fra Pico...`);
 
       if (offset >= total || hexChunk.length === 0) {
+        onProgress?.(100, 'Fil indlæst fra Pico');
         return new TextDecoder().decode(hexToBytes(hex));
       }
     }
 
     throw new Error('ERR: fs_read_page too many pages');
+  }
+
+  private async readPageWithRetry(path: string, offset: number): Promise<string[]> {
+    let lastErr: unknown;
+    for (const pageSize of FILE_READ_FALLBACK_PAGE_SIZES) {
+      for (let attempt = 1; attempt <= FILE_READ_PAGE_ATTEMPTS; attempt += 1) {
+        try {
+          return await this.collectLines(
+            `fs_read_page,${protocolField(path)},${offset},${pageSize}`,
+            FILE_TRANSFER_TIMEOUT,
+            `fs_read_page ${offset}`,
+          );
+        } catch (err) {
+          lastErr = err;
+          const hasMoreAttempts = attempt < FILE_READ_PAGE_ATTEMPTS || pageSize !== FILE_READ_FALLBACK_PAGE_SIZES[FILE_READ_FALLBACK_PAGE_SIZES.length - 1];
+          if (hasMoreAttempts) {
+            this.log('warning', `fs_read_page ${offset} (${pageSize} bytes): forsøg ${attempt}/${FILE_READ_PAGE_ATTEMPTS} mislykkedes, prøver igen`);
+            await delay(120 + attempt * 120);
+          }
+        }
+      }
+    }
+    throw lastErr instanceof Error ? lastErr : new Error(`Timeout: fs_read_page ${offset}`);
   }
 
   async writeText(path: string, content: string, onProgress?: FileWriteProgress): Promise<void> {
@@ -453,9 +483,14 @@ export class PicoProtocol {
       lines.push(`fs_write_chunk,${hex.slice(offset, offset + 160)}`);
     }
     lines.push('fs_write_end');
-    const done = this.waitFor((l) => l === 'ACK:fs_write_done' || l.startsWith('ERR'), HANDSHAKE_TIMEOUT * 5, 'fs_write_done');
-    onProgress?.(35, `Sender ${bytes.length} bytes via Bluetooth...`);
-    this.stream.sendReliable(lines);
+    const done = this.waitFor((l) => l === 'ACK:fs_write_done' || l.startsWith('ERR'), FILE_TRANSFER_TIMEOUT, 'fs_write_done');
+    onProgress?.(bytes.length === 0 ? 85 : 18, bytes.length === 0 ? 'Sender tom fil via Bluetooth...' : `Sender 0/${bytes.length} bytes via Bluetooth...`);
+    await this.stream.sendReliable(lines, (sent, totalLines, payload) => {
+      if (!payload.startsWith('fs_write_chunk,')) return;
+      const sentBytes = Math.min(bytes.length, sent * 80);
+      const value = 18 + Math.round((sent / Math.max(1, totalLines - 1)) * 67);
+      onProgress?.(Math.min(85, value), `Sender ${sentBytes}/${bytes.length} bytes via Bluetooth...`);
+    });
     const result = await done;
     if (result.startsWith('ERR')) throw new Error(result);
     onProgress?.(100, 'Gemt på Pico');

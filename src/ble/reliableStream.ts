@@ -7,6 +7,7 @@
 
 type SendFn = (line: string) => void | Promise<void>;
 type MessageFn = (line: string) => void;
+type OutboundProgressFn = (sent: number, total: number, payload: string) => void;
 
 export class ReliableStream {
   private send: SendFn;
@@ -24,6 +25,7 @@ export class ReliableStream {
   private outStreamId = 0;
   private outNextStreamId = 1;
   private outCache = new Map<number, string>();
+  private outProgress: OutboundProgressFn | null = null;
 
   constructor(send: SendFn, onMessage: MessageFn) {
     this.send = send;
@@ -39,6 +41,7 @@ export class ReliableStream {
     this.outWaitingAck = false;
     this.outStreamId = 0;
     this.outCache.clear();
+    this.outProgress = null;
   }
 
   /** Feed every received line through here. */
@@ -58,7 +61,7 @@ export class ReliableStream {
     }
 
     if (msg === 'ack:prep' || msg === 'ACK:PREP' || msg === `ack:prep,${this.outStreamId}`) {
-      this.flushOutbound();
+      void this.flushOutbound();
       return;
     }
 
@@ -120,28 +123,34 @@ export class ReliableStream {
   }
 
   /** Stream multiple lines reliably (used for the layout `update` save). */
-  sendReliable(lines: string[]): void {
+  async sendReliable(lines: string[], onProgress?: OutboundProgressFn): Promise<void> {
     const payload = lines.length === 0 ? [''] : lines;
     this.outPendingLines = [...payload];
     this.outWaitingAck = true;
+    this.outProgress = onProgress ?? null;
     this.outStreamId = this.outNextStreamId;
     this.outNextStreamId += 1;
     this.outCache.clear();
-    this.send(`prep,${payload.length},${this.outStreamId}`);
+    await this.send(`prep,${payload.length},${this.outStreamId}`);
   }
 
-  private flushOutbound(): void {
+  private async flushOutbound(): Promise<void> {
     if (!this.outWaitingAck || this.outPendingLines === null) {
       this.outWaitingAck = false;
+      this.outProgress = null;
       return;
     }
-    this.outPendingLines.forEach((payload, i) => {
+    const total = this.outPendingLines.length;
+    for (let i = 0; i < total; i += 1) {
+      const payload = this.outPendingLines[i];
       const frame = `${i + 1}-${payload}`;
       this.outCache.set(i + 1, frame);
-      this.send(frame);
-    });
+      await this.send(frame);
+      this.outProgress?.(i + 1, total, payload);
+    }
     this.outPendingLines = null;
     this.outWaitingAck = false;
+    this.outProgress = null;
   }
 
   private parseNumbered(msg: string): { idx: number; payload: string } | null {
