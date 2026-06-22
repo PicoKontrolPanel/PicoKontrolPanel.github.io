@@ -1036,6 +1036,10 @@ export function PicoIdeScreen() {
     prepareTerminalForRun();
 
     if (bleMode) {
+      if (activeSource !== 'pico') {
+        pushLine('error', `${displayPicoPath(path)} er gemt i browseren. Gem den manuelt på Picoen, før den kan køres på Picoen.`);
+        return;
+      }
       pushLine('warning', 'Bluetooth-kode køres ikke direkte herfra. Gem filen på Picoen, og brug genstart for at anvende den.');
       return;
     }
