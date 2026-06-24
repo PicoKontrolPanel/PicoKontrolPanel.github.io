@@ -8,6 +8,7 @@
 type SendFn = (line: string) => void | Promise<void>;
 type MessageFn = (line: string) => void;
 type OutboundProgressFn = (sent: number, total: number, payload: string) => void;
+type InboundProgressFn = (received: number, total: number) => void;
 
 export class ReliableStream {
   private send: SendFn;
@@ -18,6 +19,7 @@ export class ReliableStream {
   private inExpectedTotal = 0;
   private inStreamId = 0;
   private inParts = new Map<number, string>();
+  private inProgress: InboundProgressFn | null = null;
 
   // outbound (app -> device)
   private outPendingLines: string[] | null = null;
@@ -37,6 +39,7 @@ export class ReliableStream {
     this.inExpectedTotal = 0;
     this.inStreamId = 0;
     this.inParts.clear();
+    this.inProgress = null;
     this.outPendingLines = null;
     this.outWaitingAck = false;
     this.outStreamId = 0;
@@ -90,6 +93,7 @@ export class ReliableStream {
 
       if (!this.inParts.has(idx)) {
         this.inParts.set(idx, payload);
+        this.inProgress?.(this.inParts.size, this.inExpectedTotal);
       }
 
       // Find the first missing index.
@@ -120,6 +124,10 @@ export class ReliableStream {
 
     // Plain line.
     this.onMessage(msg);
+  }
+
+  setInboundProgress(callback: InboundProgressFn | null): void {
+    this.inProgress = callback;
   }
 
   /** Stream multiple lines reliably (used for the layout `update` save). */

@@ -717,6 +717,9 @@ class BLEPeripheral:
         elif msg == "fs_capabilities":
             self._handle_fs_capabilities()
 
+        elif msg.startswith("fs_read_stream,"):
+            self._handle_fs_read_stream(msg)
+
         elif msg.startswith("fs_read_page,"):
             self._handle_fs_read_page(msg)
 
@@ -1044,9 +1047,47 @@ class BLEPeripheral:
 
     def _handle_fs_capabilities(self):
         self._send_reliable_stream([
-            "fs_capabilities,version,{},page_read,1,max_page,192".format(__version__),
+            "fs_capabilities,version,{},page_read,1,max_page,192,stream_read,1,stream_chunk,128".format(__version__),
             "__END__",
         ])
+
+    def _handle_fs_read_stream(self, msg):
+        parts = msg.split(",", 2)
+        if len(parts) < 2:
+            self._send_reliable_stream(["ERR: Bad fs_read_stream", "__END__"])
+            return
+        path = self._clean_fs_path(parts[1])
+        if not path:
+            self._send_reliable_stream(["ERR: Bad path", "__END__"])
+            return
+        try:
+            chunk_size = 128
+            if len(parts) >= 3:
+                chunk_size = max(16, min(192, int(parts[2])))
+        except:
+            self._send_reliable_stream(["ERR: Bad fs_read_stream chunk", "__END__"])
+            return
+        try:
+            open_path = self._path_for_open(path)
+            total = os.stat(open_path)[6]
+            checksum = 0
+            offset = 0
+            lines = ["fs_stream_begin,{},{},{}".format(path, total, chunk_size)]
+            with open(open_path, "rb") as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    for b in chunk:
+                        checksum = (checksum + b) & 0xFFFFFFFF
+                    hex_data = ubinascii.hexlify(chunk).decode()
+                    lines.append("fs_stream_chunk,{},{}".format(offset, hex_data))
+                    offset += len(chunk)
+            lines.append("fs_stream_end,{},{},{}".format(path, total, checksum))
+            lines.append("__END__")
+            self._send_reliable_stream(lines)
+        except Exception as e:
+            self._send_reliable_stream(["ERR: fs_read_stream failed {}".format(e), "__END__"])
 
     def _handle_fs_read_page(self, msg):
         parts = msg.split(",", 3)

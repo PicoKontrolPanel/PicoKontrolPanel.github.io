@@ -42,6 +42,8 @@ interface BleFilesystemCapabilities {
   version?: string;
   pageRead: boolean;
   maxPageSize: number;
+  streamRead: boolean;
+  streamChunkSize: number;
   validated: boolean;
 }
 
@@ -60,6 +62,7 @@ const FILE_READ_PROBE_TIMEOUT = 3500;
 const FILE_READ_MIN_PAGE_TIMEOUT = 8000;
 const FILE_READ_MIN_PAGE_ATTEMPTS = 2;
 const FILE_CAPABILITIES_TIMEOUT = HANDSHAKE_TIMEOUT;
+const FILE_STREAM_TRANSFER_TIMEOUT = HANDSHAKE_TIMEOUT * 8;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -210,12 +213,19 @@ export class PicoProtocol {
     });
   }
 
-  private async collectLines(command: string, timeoutMs: number, label: string, signal?: AbortSignal): Promise<string[]> {
+  private async collectLines(
+    command: string,
+    timeoutMs: number,
+    label: string,
+    signal?: AbortSignal,
+    onFrameProgress?: (received: number, total: number) => void,
+  ): Promise<string[]> {
     throwIfAborted(signal);
     const collectId = this.lineCollectId + 1;
     this.lineCollectId = collectId;
     this.collectingLines = true;
     this.lineBuffer = [];
+    this.stream.setInboundProgress(onFrameProgress ?? null);
 
     const linesPromise = new Promise<string[]>((resolve, reject) => {
       let settled = false;
@@ -224,6 +234,7 @@ export class PicoProtocol {
         settled = true;
         if (isCurrentCollection()) {
           this.lineReject = null;
+          this.stream.setInboundProgress(null);
         }
         signal?.removeEventListener('abort', abort);
       };
@@ -459,7 +470,15 @@ export class PicoProtocol {
 
   async readText(path: string, onProgress?: FileReadProgress, signal?: AbortSignal): Promise<string> {
     onProgress?.(4, 'Validerer Picoens Bluetooth-filsystem...');
-    await this.getFilesystemCapabilities(signal);
+    const capabilities = await this.getFilesystemCapabilities(signal);
+    if (capabilities.streamRead) {
+      try {
+        return await this.readTextStream(path, capabilities, onProgress, signal);
+      } catch (err) {
+        if (signal?.aborted || isAbortError(err) || !capabilities.pageRead) throw err;
+        this.log('warning', err instanceof Error ? `fs_read_stream fejlede; bruger paged read: ${err.message}` : 'fs_read_stream fejlede; bruger paged read');
+      }
+    }
     return this.readTextPaged(path, onProgress, signal);
   }
 
@@ -475,6 +494,8 @@ export class PicoProtocol {
       return {
         pageRead: true,
         maxPageSize: FILE_READ_PAGE_SIZES[0],
+        streamRead: false,
+        streamChunkSize: 0,
         validated: false,
       };
     }
@@ -494,15 +515,18 @@ export class PicoProtocol {
     }
 
     const maxPageSize = parseInt(fields.get('max_page') ?? '', 10);
+    const streamChunkSize = parseInt(fields.get('stream_chunk') ?? '', 10);
     const capabilities: BleFilesystemCapabilities = {
       version: fields.get('version') || undefined,
       pageRead: fields.get('page_read') === '1',
       maxPageSize: Number.isFinite(maxPageSize) && maxPageSize > 0 ? maxPageSize : 32,
+      streamRead: fields.get('stream_read') === '1',
+      streamChunkSize: Number.isFinite(streamChunkSize) && streamChunkSize > 0 ? streamChunkSize : 128,
       validated: true,
     };
 
-    if (!capabilities.pageRead) {
-      throw new Error('Picoens Bluetooth-runtime meldte, at paged file-read ikke er understøttet.');
+    if (!capabilities.pageRead && !capabilities.streamRead) {
+      throw new Error('Picoens Bluetooth-runtime meldte, at file-read ikke er understøttet.');
     }
 
     this.fsCapabilities = capabilities;
@@ -611,6 +635,70 @@ export class PicoProtocol {
       currentIndex = maxPageSizeIndex;
     }
     throw lastErr instanceof Error ? lastErr : new Error(`Timeout: fs_read_page ${offset}`);
+  }
+
+  private async readTextStream(
+    path: string,
+    capabilities: BleFilesystemCapabilities,
+    onProgress?: FileReadProgress,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const loadingLabel = `Indlæser ${displayFilePath(path)}...`;
+    const chunkSize = Math.max(16, Math.min(192, capabilities.streamChunkSize || 128));
+    onProgress?.(5, loadingLabel);
+    const lines = await this.collectLines(
+      `fs_read_stream,${protocolField(path)},${chunkSize}`,
+      FILE_STREAM_TRANSFER_TIMEOUT,
+      `fs_read_stream ${path}`,
+      signal,
+      (received, total) => {
+        const value = 8 + Math.round((Math.min(received, total) / Math.max(1, total)) * 87);
+        onProgress?.(Math.min(95, value), loadingLabel);
+      },
+    );
+    throwIfAborted(signal);
+
+    const error = lines.find((line) => line.startsWith('ERR'));
+    if (error) throw new Error(error);
+
+    const beginLine = lines.find((line) => line.startsWith('fs_stream_begin,'));
+    const endLine = lines.find((line) => line.startsWith('fs_stream_end,'));
+    if (!beginLine || !endLine) throw new Error('ERR: fs_read_stream missing metadata');
+
+    const [, beginPath, totalRaw] = beginLine.split(',', 4);
+    const [, endPath, endTotalRaw, checksumRaw] = endLine.split(',', 4);
+    const total = parseInt(totalRaw ?? '', 10);
+    const endTotal = parseInt(endTotalRaw ?? '', 10);
+    const expectedChecksum = parseInt(checksumRaw ?? '', 10);
+    if (beginPath !== path || endPath !== path || !Number.isFinite(total) || total !== endTotal || !Number.isFinite(expectedChecksum)) {
+      throw new Error('ERR: fs_read_stream invalid metadata');
+    }
+
+    let offset = 0;
+    let hex = '';
+    for (const line of lines) {
+      if (!line.startsWith('fs_stream_chunk,')) continue;
+      const [, offsetRaw, hexChunk = ''] = line.split(',', 3);
+      const chunkOffset = parseInt(offsetRaw ?? '', 10);
+      if (!Number.isFinite(chunkOffset) || chunkOffset !== offset || hexChunk.length % 2 !== 0) {
+        throw new Error('ERR: fs_read_stream invalid chunk');
+      }
+      hex += hexChunk;
+      offset += Math.floor(hexChunk.length / 2);
+    }
+
+    if (offset !== total) {
+      throw new Error('ERR: fs_read_stream size mismatch');
+    }
+
+    const bytes = hexToBytes(hex);
+    const checksum = checksumBytes(bytes);
+    if (checksum !== expectedChecksum) {
+      throw new Error('ERR: fs_read_stream checksum mismatch');
+    }
+
+    onProgress?.(100, 'Fil indlæst fra Pico');
+    return new TextDecoder().decode(bytes);
   }
 
   async writeText(path: string, content: string, onProgress?: FileWriteProgress): Promise<void> {
@@ -745,6 +833,14 @@ function getMaxReadPageSizeIndex(maxPageSize: number): number {
 
 function displayFilePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/^\/+/, '') || path;
+}
+
+function checksumBytes(bytes: Uint8Array): number {
+  let checksum = 0;
+  for (const byte of bytes) {
+    checksum = (checksum + byte) >>> 0;
+  }
+  return checksum;
 }
 
 function hexToBytes(hex: string): Uint8Array {
