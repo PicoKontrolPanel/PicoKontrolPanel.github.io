@@ -159,10 +159,6 @@ export function PicoIdeScreen() {
   }
 
   function pushMicroPythonError(errorText: string, sourceCode = editorText, level: SerialLogLevel = 'error') {
-    if (!simplifiedErrors) {
-      pushLine(level, errorText);
-      return;
-    }
     const explanation = explainMicroPythonError(errorText, sourceCode);
     setLines((current) => [...current.slice(-140), { level, text: explanation.simple, technical: explanation.technical }]);
   }
@@ -1649,14 +1645,14 @@ export function PicoIdeScreen() {
             <h2>Terminal</h2>
             <div className="ide-mini-actions">
               <button
-                className={`btn btn-outline ide-tool-btn ide-terminal-toggle ${simplifiedErrors ? 'active' : ''}`}
+                className={`btn btn-outline ide-terminal-toggle ${simplifiedErrors ? 'active' : ''}`}
                 type="button"
                 onClick={() => setSimplifiedErrors((value) => !value)}
-                aria-label={simplifiedErrors ? 'Vis enkle fejl' : 'Vis tekniske fejl'}
+                aria-label={simplifiedErrors ? 'Viser danske fejl' : 'Viser tekniske fejl'}
                 aria-pressed={simplifiedErrors}
-                title={simplifiedErrors ? 'Viser enkle fejlbeskeder' : 'Viser tekniske fejlbeskeder'}
+                title={simplifiedErrors ? 'Viser korte danske fejl' : 'Viser originale tekniske fejl'}
               >
-                <Glyph name="debugger" size={18} />
+                {simplifiedErrors ? 'Dansk' : 'Teknisk'}
               </button>
               <button
                 className={`btn btn-outline ide-terminal-toggle ${clearTerminalOnRun ? 'active' : ''}`}
@@ -1678,10 +1674,7 @@ export function PicoIdeScreen() {
             ) : (
               lines.map((line, idx) => (
                 <div className={`term-line term-${line.level}`} key={`${idx}-${line.text}`}>
-                  {line.text}
-                  {!simplifiedErrors && line.technical && (
-                    <pre className="term-technical">{line.technical}</pre>
-                  )}
+                  {line.technical && !simplifiedErrors ? line.technical : line.text}
                 </div>
               ))
             )}
