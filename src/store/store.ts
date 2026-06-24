@@ -583,7 +583,16 @@ export const useStore = create<AppState>((set, get) => {
           set({ progress: { value: Math.min(92, 24 + attempt * 8), label: `Genforbinder (${attempt}/8)...` } });
           await get().connectToDevice(match, saved);
           if (target === 'ide') {
-            get().openPicoIde();
+            set((s) => ({
+              screen: 'ide',
+              picoIdeOrigin: 'control',
+              active: s.active,
+              layout: s.layout,
+              sliderValues: s.sliderValues,
+              editMode: false,
+              sideMenuOpen: false,
+              menuPage: null,
+            }));
           }
           pushToast('Pico genforbundet.');
           return true;
