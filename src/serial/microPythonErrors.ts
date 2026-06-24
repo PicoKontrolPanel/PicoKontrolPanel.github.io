@@ -42,6 +42,10 @@ export function explainMicroPythonError(errorText: string, sourceCode: string): 
       return { simple: `Mangler indrykning på linje ${line}.`, technical, line };
     }
 
+    if (looksLikeUnquotedText(errorLine)) {
+      return { simple: `Tekst mangler citationstegn${line ? ` på linje ${line}` : ''}.`, technical, line };
+    }
+
     if (hasOddQuoteCount(errorLine)) {
       return { simple: `Tekst mangler et afsluttende citationstegn${line ? ` på linje ${line}` : ''}.`, technical, line };
     }
@@ -110,4 +114,11 @@ function hasOddQuoteCount(text: string): boolean {
   const single = (text.match(/'/g) ?? []).length;
   const double = (text.match(/"/g) ?? []).length;
   return single % 2 === 1 || double % 2 === 1;
+}
+
+function looksLikeUnquotedText(text: string): boolean {
+  const trimmed = text.trim();
+  const printValue = trimmed.match(/^print\((.+)\)$/)?.[1]?.trim();
+  if (!printValue || /['"]/.test(printValue)) return false;
+  return /\s/.test(printValue) && /[a-zA-ZæøåÆØÅ]/.test(printValue);
 }

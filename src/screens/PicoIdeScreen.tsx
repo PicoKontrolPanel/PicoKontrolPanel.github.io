@@ -1157,21 +1157,26 @@ export function PicoIdeScreen() {
       setTerminalFollow(true);
       pushLine('info', "Starter offline MicroPython. Forbind en Pico med USB for at køre rigtig micropython på Pico'en.");
       try {
-        let streamedOutput = false;
+        const streamedOutput: string[] = [];
         const result = await runOfflineMicroPython(editorText, {
           signal: abortController.signal,
           onOutput: (text) => {
-            streamedOutput = true;
-            pushLine('info', text);
+            streamedOutput.push(text);
           },
         });
         for (const issue of result.issues) {
           const prefix = issue.line ? `Linje ${issue.line}: ` : '';
           pushLine(issue.level === 'error' ? 'error' : 'warning', `${prefix}${issue.text}`);
         }
-        if (result.output.trim()) pushLine('info', result.output);
-        if (result.error.trim()) pushMicroPythonError(result.error, editorText, result.unavailable ? 'warning' : 'error');
-        if (result.ok && !streamedOutput && !result.output.trim() && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
+        const output = [...streamedOutput, result.output].filter(Boolean).join('\n').trim();
+        const streamedTraceback = !result.error.trim() && looksLikeMicroPythonError(output);
+        if (streamedTraceback) {
+          pushMicroPythonError(output, editorText);
+        } else {
+          if (output) pushLine('info', output);
+          if (result.error.trim()) pushMicroPythonError(result.error, editorText, result.unavailable ? 'warning' : 'error');
+        }
+        if (result.ok && !output && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
       } finally {
         offlineAbortRef.current = null;
         setRunningOffline(false);
@@ -1900,6 +1905,10 @@ function isMainPyPath(value: string): boolean {
 
 function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
+}
+
+function looksLikeMicroPythonError(text: string): boolean {
+  return /Traceback \(most recent call last\):/.test(text) || /\b(?:SyntaxError|NameError|TypeError|ValueError|IndentationError|ImportError|ModuleNotFoundError|ZeroDivisionError|IndexError|KeyError|AttributeError):/.test(text);
 }
 
 function isBleProtectedRuntimeFile(file: Pick<RuntimeFileCheck, 'path'>): boolean {
