@@ -1146,7 +1146,6 @@ export function PicoIdeScreen() {
           const prefix = issue.line ? `Linje ${issue.line}: ` : '';
           pushLine(issue.level === 'error' ? 'error' : 'warning', `${prefix}${issue.text}`);
         }
-        pushLine('warning', 'Denne kode bruger Pico-specifikke funktioner og kan ikke køres i browseren. Gem den på Picoen først, og tryk derefter Kør.');
         return;
       }
 

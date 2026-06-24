@@ -35,19 +35,27 @@ export function explainMicroPythonError(errorText: string, sourceCode: string): 
   if (/SyntaxError/.test(last)) {
     const blockWithoutColon = findBlockWithoutColon(errorLine, line) ?? findBlockWithoutColon(previous.text, previous.line) ?? nearbyBlockWithoutColon(lines, line);
     if (blockWithoutColon) {
-      return { simple: `Mangler : efter linje ${blockWithoutColon.line}.`, technical, line: blockWithoutColon.line };
+      return { simple: `Mangler måske : efter linje ${blockWithoutColon.line}.`, technical, line: blockWithoutColon.line };
     }
 
     if (line && previous.text.trim().endsWith(':') && errorLine.trim() && !/^\s+/.test(errorLine)) {
-      return { simple: `Mangler indrykning på linje ${line}.`, technical, line };
+      return { simple: `Mangler måske indrykning på linje ${line}.`, technical, line };
     }
 
     if (looksLikeUnquotedText(errorLine)) {
-      return { simple: `Tekst mangler citationstegn${line ? ` på linje ${line}` : ''}.`, technical, line };
+      return { simple: `Tekst mangler måske citationstegn${line ? ` på linje ${line}` : ''}.`, technical, line };
     }
 
     if (hasOddQuoteCount(errorLine)) {
-      return { simple: `Tekst mangler et afsluttende citationstegn${line ? ` på linje ${line}` : ''}.`, technical, line };
+      return { simple: `Tekst mangler måske et afsluttende citationstegn${line ? ` på linje ${line}` : ''}.`, technical, line };
+    }
+
+    if (hasMoreOpeningBrackets(errorLine)) {
+      return { simple: `Mangler måske en afsluttende parentes${line ? ` på linje ${line}` : ''}.`, technical, line };
+    }
+
+    if (hasMoreClosingBrackets(errorLine)) {
+      return { simple: `Der er måske en parentes for meget${line ? ` på linje ${line}` : ''}.`, technical, line };
     }
 
     return { simple: `Python fandt en syntaksfejl${line ? ` omkring linje ${line}` : ''}.`, technical, line };
@@ -121,4 +129,28 @@ function looksLikeUnquotedText(text: string): boolean {
   const printValue = trimmed.match(/^print\((.+)\)$/)?.[1]?.trim();
   if (!printValue || /['"]/.test(printValue)) return false;
   return /\s/.test(printValue) && /[a-zA-ZæøåÆØÅ]/.test(printValue);
+}
+
+function hasMoreOpeningBrackets(text: string): boolean {
+  return bracketBalance(text) > 0;
+}
+
+function hasMoreClosingBrackets(text: string): boolean {
+  return bracketBalance(text) < 0;
+}
+
+function bracketBalance(text: string): number {
+  let balance = 0;
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if ((char === '"' || char === "'") && text[i - 1] !== '\\') {
+      quote = quote === char ? null : quote ?? char;
+      continue;
+    }
+    if (quote) continue;
+    if (char === '(' || char === '[' || char === '{') balance += 1;
+    if (char === ')' || char === ']' || char === '}') balance -= 1;
+  }
+  return balance;
 }
