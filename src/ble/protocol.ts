@@ -55,8 +55,10 @@ interface Waiter {
 const HANDSHAKE_TIMEOUT = 6000;
 const CONTROL_GAP_MS = 15;
 const FILE_READ_PAGE_SIZES = [32, 64, 128, 192] as const;
-const FILE_READ_PAGE_ATTEMPTS = 4;
 const FILE_TRANSFER_TIMEOUT = HANDSHAKE_TIMEOUT * 4;
+const FILE_READ_PROBE_TIMEOUT = 3500;
+const FILE_READ_MIN_PAGE_TIMEOUT = 8000;
+const FILE_READ_MIN_PAGE_ATTEMPTS = 2;
 const FILE_CAPABILITIES_TIMEOUT = HANDSHAKE_TIMEOUT;
 
 function delay(ms: number): Promise<void> {
@@ -514,13 +516,14 @@ export class PicoProtocol {
     let offset = 0;
     let total: number | null = null;
     let hex = '';
+    const loadingLabel = `Indlæser ${displayFilePath(path)}...`;
     throwIfAborted(signal);
-    onProgress?.(5, `Starter læsning af ${path}...`);
+    onProgress?.(5, loadingLabel);
 
     for (let page = 0; page < 512; page += 1) {
       throwIfAborted(signal);
       const firstPage = offset === 0;
-      onProgress?.(firstPage ? 7 : 8, firstPage ? 'Beder Pico om første datapakke...' : `Beder Pico om byte ${offset}...`);
+      if (firstPage) onProgress?.(7, loadingLabel);
       let result: { lines: string[]; nextPageSizeIndex: number; maxPageSizeIndex: number };
       try {
         result = await this.readPageWithRetry(path, offset, pageSizeIndex, maxPageSizeIndex, signal);
@@ -554,7 +557,7 @@ export class PicoProtocol {
       hex += hexChunk;
       offset += Math.floor(hexChunk.length / 2);
       const value = total > 0 ? 8 + Math.min(87, Math.round((offset / total) * 87)) : 95;
-      onProgress?.(value, `Læser ${Math.min(offset, total)}/${total} bytes fra Pico...`);
+      onProgress?.(value, loadingLabel);
 
       if (offset >= total || hexChunk.length === 0) {
         onProgress?.(100, 'Fil indlæst fra Pico');
@@ -576,12 +579,14 @@ export class PicoProtocol {
     let currentIndex = Math.min(pageSizeIndex, maxPageSizeIndex);
     while (currentIndex >= 0) {
       const pageSize = FILE_READ_PAGE_SIZES[currentIndex];
-      for (let attempt = 1; attempt <= FILE_READ_PAGE_ATTEMPTS; attempt += 1) {
+      const attempts = currentIndex === 0 ? FILE_READ_MIN_PAGE_ATTEMPTS : 1;
+      const timeout = currentIndex === 0 ? FILE_READ_MIN_PAGE_TIMEOUT : FILE_READ_PROBE_TIMEOUT;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
         throwIfAborted(signal);
         try {
           const lines = await this.collectLines(
             `fs_read_page,${protocolField(path)},${offset},${pageSize}`,
-            FILE_TRANSFER_TIMEOUT,
+            timeout,
             `fs_read_page ${offset}`,
             signal,
           );
@@ -593,10 +598,11 @@ export class PicoProtocol {
         } catch (err) {
           if (signal?.aborted || isAbortError(err)) throw err;
           lastErr = err;
-          const hasMoreAttempts = attempt < FILE_READ_PAGE_ATTEMPTS || currentIndex > 0;
+          const hasMoreAttempts = attempt < attempts || currentIndex > 0;
           if (hasMoreAttempts) {
-            this.log('warning', `fs_read_page ${offset} (${pageSize} bytes): forsøg ${attempt}/${FILE_READ_PAGE_ATTEMPTS} mislykkedes, prøver igen`);
-            await delay(120 + attempt * 120);
+            const nextSize = currentIndex > 0 && attempt >= attempts ? FILE_READ_PAGE_SIZES[currentIndex - 1] : pageSize;
+            this.log('warning', `fs_read_page ${offset} (${pageSize} bytes) fejlede; prøver ${nextSize} bytes`);
+            await delay(80 + attempt * 80);
           }
         }
       }
@@ -735,6 +741,10 @@ function getMaxReadPageSizeIndex(maxPageSize: number): number {
     if (FILE_READ_PAGE_SIZES[i] <= maxPageSize) result = i;
   }
   return result;
+}
+
+function displayFilePath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\/+/, '') || path;
 }
 
 function hexToBytes(hex: string): Uint8Array {

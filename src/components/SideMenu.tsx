@@ -15,11 +15,13 @@ export function SideMenu({ open }: SideMenuProps) {
   const disconnect = useStore((s) => s.disconnect);
   const openPicoIde = useStore((s) => s.openPicoIde);
   const closePicoIde = useStore((s) => s.closePicoIde);
+  const picoIdeOrigin = useStore((s) => s.picoIdeOrigin);
 
   const onDashboard = screen === 'dashboard';
   const onControlPanel = screen === 'control';
   const onPicoIde = screen === 'ide';
   const canEdit = onControlPanel && !!active?.canEdit;
+  const picoIdeExitLabel = picoIdeOrigin === 'control' ? 'Kontrol Panel' : 'Hovedmenu';
 
   return (
     <>
@@ -49,7 +51,7 @@ export function SideMenu({ open }: SideMenuProps) {
 
         {onPicoIde && (
           <>
-            <MenuButton label="Hovedmenu" icon="back" onClick={closePicoIde} />
+            <MenuButton label={picoIdeExitLabel} icon="back" onClick={closePicoIde} />
             <TeknologiskolenLink />
           </>
         )}
