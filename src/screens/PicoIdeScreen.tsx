@@ -162,6 +162,14 @@ export function PicoIdeScreen() {
     setSessionDrafts((current) => ({ ...current, [draftKey(source, nextPath)]: content }));
   }
 
+  function showLoadingEditorShell(nextPath: string, source: FileLocation = 'pico') {
+    setPath(nextPath);
+    setActiveSource(source);
+    setEditorText('');
+    setAutocomplete(null);
+    setEditorScroll({ top: 0, left: 0 });
+  }
+
   function updateEditorText(content: string, cursor = editorRef.current?.selectionStart ?? content.length) {
     setEditorText(content);
     setSessionDrafts((current) => ({ ...current, [draftKey(activeSource, path)]: content }));
@@ -280,10 +288,11 @@ export function PicoIdeScreen() {
       bleFileReadAbortRef.current?.abort();
       bleFileReadAbortRef.current = null;
       bleFileReadActivePathRef.current = null;
-    setLoadingFilePath(nextPath);
-    setBusy(true);
-    clearTaskProgressTimer();
-    setTaskProgress({ value: 2, label: `Skifter til ${displayPicoPath(nextPath)}...`, cancellable: true });
+      showLoadingEditorShell(nextPath);
+      setLoadingFilePath(nextPath);
+      setBusy(true);
+      clearTaskProgressTimer();
+      setTaskProgress({ value: 2, label: `Skifter til ${displayPicoPath(nextPath)}...`, cancellable: true });
       return;
     }
 
@@ -301,6 +310,7 @@ export function PicoIdeScreen() {
     const abortController = new AbortController();
     bleFileReadAbortRef.current = abortController;
     bleFileReadActivePathRef.current = nextPath;
+    showLoadingEditorShell(nextPath);
     setLoadingFilePath(nextPath);
     setBusy(true);
     clearTaskProgressTimer();
