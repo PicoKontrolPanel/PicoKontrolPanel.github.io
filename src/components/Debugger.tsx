@@ -60,7 +60,7 @@ export function Debugger() {
           Ryd
         </button>
         <button className="btn btn-primary btn-block" type="button" onClick={saveToFile}>
-          Gem til enhed
+          Gem logfil
         </button>
       </div>
     </Modal>

@@ -1130,7 +1130,7 @@ export function PicoIdeScreen() {
     prepareTerminalForRun();
 
     if (bleMode && activeSource === 'pico') {
-      pushLine('warning', 'Bluetooth-kode køres ikke direkte herfra. Gem filen på Picoen, og brug genstart for at anvende den.');
+      pushLine('warning', 'Bluetooth holder forbindelsen åben, så koden kan ikke køres direkte her. Gem filen, og genstart Picoen for at køre den.');
       return;
     }
 
@@ -1150,7 +1150,7 @@ export function PicoIdeScreen() {
       setBusy(true);
       setRunningOffline(true);
       setTerminalFollow(true);
-      pushLine('info', "Starter offline MicroPython. Forbind en Pico med USB for at køre rigtig micropython på Pico'en.");
+      pushLine('info', 'Starter offline MicroPython. Forbind Pico med USB for at køre på selve Picoen.');
       try {
         const streamedOutput: string[] = [];
         const result = await runOfflineMicroPython(editorText, {
@@ -1670,7 +1670,7 @@ export function PicoIdeScreen() {
           </div>
           <div className="ide-terminal" aria-live="polite" ref={terminalRef} onScroll={onTerminalScroll}>
             {lines.length === 0 ? (
-              <div className="term-line">Ingen USB data endnu.</div>
+              <div className="term-line">Ingen terminaldata endnu.</div>
             ) : (
               lines.map((line, idx) => (
                 <div className={`term-line term-${line.level}`} key={`${idx}-${line.text}`}>
