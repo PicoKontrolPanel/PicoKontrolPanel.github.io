@@ -2213,7 +2213,7 @@ function buildFileListItems(picoFiles: PicoFileEntry[], localFiles: IdeDraft[], 
     });
   }
 
-  const sortedRows = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, 'da'));
+  const sortedRows = [...rows.values()].sort(compareIdeFileRows);
   const picoRows = sortedRows.filter((row) => row.source === 'pico');
   const localRows = sortedRows.filter((row) => row.source === 'local');
   const items: IdeFileListItem[] = [];
@@ -2226,6 +2226,34 @@ function buildFileListItems(picoFiles: PicoFileEntry[], localFiles: IdeDraft[], 
   }
 
   return items;
+}
+
+const STANDARD_FILE_ORDER = new Map<string, number>([
+  ['main.py', 0],
+  ['devicesettings.txt', 1],
+  ['layout.txt', 2],
+  ['bleperipheral.py', 3],
+  ['picorobotics.py', 4],
+  ['neopixel.py', 5],
+  ['hcsr04.py', 6],
+]);
+
+function compareIdeFileRows(a: IdeFileRow, b: IdeFileRow): number {
+  const aStandard = standardFileOrder(a.path);
+  const bStandard = standardFileOrder(b.path);
+
+  if (aStandard === null && bStandard === null) {
+    return a.name.localeCompare(b.name, 'da');
+  }
+  if (aStandard === null) return -1;
+  if (bStandard === null) return 1;
+  return aStandard - bStandard;
+}
+
+function standardFileOrder(path: string): number | null {
+  const fileName = path.replace(/\\/g, '/').split('/').filter(Boolean).pop()?.toLowerCase();
+  if (!fileName) return null;
+  return STANDARD_FILE_ORDER.get(fileName) ?? null;
 }
 
 function renameSnapshot(snapshots: Record<string, string>, from: string, to: string): Record<string, string> {
