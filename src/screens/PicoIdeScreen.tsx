@@ -1645,14 +1645,14 @@ export function PicoIdeScreen() {
             <h2>Terminal</h2>
             <div className="ide-mini-actions">
               <button
-                className={`btn btn-outline ide-terminal-toggle ${simplifiedErrors ? 'active' : ''}`}
+                className={`btn btn-outline ide-terminal-toggle ${!simplifiedErrors ? 'active' : ''}`}
                 type="button"
                 onClick={() => setSimplifiedErrors((value) => !value)}
-                aria-label={simplifiedErrors ? 'Viser danske fejl' : 'Viser tekniske fejl'}
-                aria-pressed={simplifiedErrors}
-                title={simplifiedErrors ? 'Viser korte danske fejl' : 'Viser originale tekniske fejl'}
+                aria-label={simplifiedErrors ? 'Tekniske fejl er slået fra' : 'Tekniske fejl er slået til'}
+                aria-pressed={!simplifiedErrors}
+                title={simplifiedErrors ? 'Vis originale tekniske fejl' : 'Viser originale tekniske fejl'}
               >
-                {simplifiedErrors ? 'Dansk' : 'Teknisk'}
+                Teknisk
               </button>
               <button
                 className={`btn btn-outline ide-terminal-toggle ${clearTerminalOnRun ? 'active' : ''}`}
