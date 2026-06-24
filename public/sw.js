@@ -1,14 +1,9 @@
-const CACHE_NAME = 'pico-kontrol-panel-v2';
+const CACHE_NAME = 'pico-kontrol-panel-v5';
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './art/logo.png',
-  './art/splash.png',
-  './icons/apple-touch-icon.png',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/maskable-512.png',
   './micropython/micropython.mjs',
   './micropython/micropython.wasm',
 ];

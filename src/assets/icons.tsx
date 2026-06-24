@@ -32,7 +32,7 @@ export function deviceIconUrl(iconID: number): string {
 }
 
 export const logoUrl = `${BASE}art/logo.png`;
-export const splashUrl = `${BASE}art/splash.png`;
+export const teknologiskolenHeaderUrl = `${BASE}art/Teknologiskolen_logo.png`;
 export const teknologiskolenLogoUrl = `${BASE}art/logo_teknologiskolen_white.png`;
 
 export type GlyphName =

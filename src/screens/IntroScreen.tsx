@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { teknologiskolenHeaderUrl } from '../assets/icons';
 import { APP_VERSION } from '../lib/storage';
 import { useStore } from '../store/store';
 
@@ -11,7 +12,9 @@ export function IntroScreen() {
   return (
     <div className="screen intro">
       <div className="intro-header">
-        <h2>Teknologiskolen</h2>
+        <span className="intro-header-fill" aria-hidden="true" />
+        <img className="intro-header-image" src={teknologiskolenHeaderUrl} alt="Teknologiskolen" />
+        <span className="intro-header-fill" aria-hidden="true" />
       </div>
 
       <div className="intro-body">
