@@ -531,7 +531,7 @@ export function PicoIdeScreen() {
   async function checkRuntimeFiles() {
     if (bleMode) {
       setBusy(true);
-      setTaskProgress({ value: 4, label: 'Tjekker filer på Pico via Bluetooth...' });
+      setTaskProgress({ value: 4, label: 'Tjekker biblioteker på Pico via Bluetooth...' });
       try {
         const normalizedChecks = await collectBleRuntimeChecks((value, label) => setTaskProgress({ value, label }));
         setRuntimeChecks(normalizedChecks);
@@ -553,9 +553,14 @@ export function PicoIdeScreen() {
 
   async function collectBleRuntimeChecks(onProgress?: (value: number, label: string) => void): Promise<RuntimeFileCheck[]> {
     const checks: RuntimeFileCheck[] = [];
-    const readableFiles = REQUIRED_RUNTIME_FILES.filter((file) => !isBleProtectedRuntimeFile(file));
+    const readableFiles = REQUIRED_RUNTIME_FILES.filter((file) => file.kind === 'library' && !isBleProtectedRuntimeFile(file));
     let readableIndex = 0;
     for (const file of REQUIRED_RUNTIME_FILES) {
+      if (file.kind === 'program') {
+        checks.push({ ...file, status: 'unknown', detail: 'Startprogram kan vælges til installation' });
+        continue;
+      }
+
       if (isBleProtectedRuntimeFile(file)) {
         checks.push({ ...file, status: 'unknown', detail: 'Opdateres via USB' });
         continue;
@@ -606,6 +611,11 @@ export function PicoIdeScreen() {
     if (!fs) return [];
     const checks: RuntimeFileCheck[] = [];
     for (const file of REQUIRED_RUNTIME_FILES) {
+      if (file.kind === 'program') {
+        checks.push({ ...file, status: 'unknown', detail: 'Startprogram kan vælges til installation' });
+        continue;
+      }
+
       try {
         const current = await fs.readText(file.path);
         const ok = normalizeRuntimeContent(current) === normalizeRuntimeContent(file.content);
@@ -950,8 +960,8 @@ export function PicoIdeScreen() {
   async function installRuntimeFiles() {
     if (!connected && !bleMode) return;
     setBusy(true);
-    setTaskProgress({ value: 4, label: bleMode ? 'Tjekker filer på Pico via Bluetooth...' : 'Tjekker filer på Pico...' });
-    pushLine('info', bleMode ? 'Tjekker runtime-filer via Bluetooth før installation...' : 'Tjekker runtime-filer før installation...');
+    setTaskProgress({ value: 4, label: bleMode ? 'Tjekker biblioteker på Pico via Bluetooth...' : 'Tjekker biblioteker på Pico...' });
+    pushLine('info', bleMode ? 'Tjekker om Picoens biblioteker er opdaterede via Bluetooth før installation...' : 'Tjekker om Picoens biblioteker er opdaterede før installation...');
     try {
       const checks =
         runtimeChecks.length > 0
@@ -961,15 +971,13 @@ export function PicoIdeScreen() {
             : await withQuietTerminal(() => collectRuntimeChecks(fsRef.current));
       setRuntimeChecks(checks);
       const nextSelection: Record<string, boolean> = {};
-      const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
-      const programToInstall = hasActiveProgram ? undefined : checks.find((check) => check.kind === 'program' && check.status !== 'ok' && !isBleProtectedRuntimeFile(check));
       checks.forEach((check) => {
         if (bleMode && isBleProtectedRuntimeFile(check)) {
           nextSelection[check.id] = false;
           return;
         }
         if (check.kind === 'program') {
-          nextSelection[check.id] = check.id === programToInstall?.id;
+          nextSelection[check.id] = false;
         } else {
           nextSelection[check.id] = check.status !== 'ok' && check.status !== 'unknown';
         }
@@ -1834,17 +1842,7 @@ function normalizeRuntimeContent(value: string): string {
 }
 
 function normalizeRuntimeChecks(checks: RuntimeFileCheck[]): RuntimeFileCheck[] {
-  const hasActiveProgram = checks.some((check) => check.kind === 'program' && check.status === 'ok');
-  if (!hasActiveProgram) return checks;
-
-  return checks.map((check) => {
-    if (check.kind !== 'program' || check.status === 'ok') return check;
-    return {
-      ...check,
-      status: 'unknown',
-      detail: 'Kan installeres som alternativ',
-    };
-  });
+  return checks;
 }
 
 function runtimeCheckLogLevel(status: RuntimeFileCheck['status']): SerialLogLevel {
