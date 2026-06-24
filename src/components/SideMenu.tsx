@@ -21,6 +21,7 @@ export function SideMenu({ open }: SideMenuProps) {
   const onControlPanel = screen === 'control';
   const onPicoIde = screen === 'ide';
   const canEdit = onControlPanel && !!active?.canEdit;
+  const picoIdeFromControl = picoIdeOrigin === 'control';
   const picoIdeExitLabel = picoIdeOrigin === 'control' ? 'Kontrol Panel' : 'Hovedmenu';
 
   return (
@@ -57,7 +58,7 @@ export function SideMenu({ open }: SideMenuProps) {
         )}
 
         <div className="spacer" />
-        {onControlPanel && <MenuButton label="Forlad" icon="exit" onClick={() => disconnect()} />}
+        {(onControlPanel || (onPicoIde && picoIdeFromControl)) && <MenuButton label="Forlad" icon="exit" onClick={() => disconnect()} />}
       </nav>
     </>
   );
