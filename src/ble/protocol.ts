@@ -38,6 +38,13 @@ export interface BleFileEntry {
 export type FileWriteProgress = (value: number, label: string) => void;
 export type FileReadProgress = (value: number, label: string) => void;
 
+interface BleFilesystemCapabilities {
+  version?: string;
+  pageRead: boolean;
+  maxPageSize: number;
+  validated: boolean;
+}
+
 interface Waiter {
   match: (line: string) => boolean;
   resolve: (line: string) => void;
@@ -47,9 +54,10 @@ interface Waiter {
 
 const HANDSHAKE_TIMEOUT = 6000;
 const CONTROL_GAP_MS = 15;
-const FILE_READ_FALLBACK_PAGE_SIZES = [192, 128, 64, 32] as const;
+const FILE_READ_PAGE_SIZES = [32, 64, 128, 192] as const;
 const FILE_READ_PAGE_ATTEMPTS = 4;
 const FILE_TRANSFER_TIMEOUT = HANDSHAKE_TIMEOUT * 4;
+const FILE_CAPABILITIES_TIMEOUT = HANDSHAKE_TIMEOUT;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -88,6 +96,7 @@ export class PicoProtocol {
   private pendingSliders = new Map<string, string>();
   private expectingDisconnect = false;
   private busy = false;
+  private fsCapabilities: BleFilesystemCapabilities | null = null;
 
   constructor(events: ProtocolEvents = {}) {
     this.events = events;
@@ -447,10 +456,61 @@ export class PicoProtocol {
   }
 
   async readText(path: string, onProgress?: FileReadProgress, signal?: AbortSignal): Promise<string> {
+    onProgress?.(4, 'Validerer Picoens Bluetooth-filsystem...');
+    await this.getFilesystemCapabilities(signal);
     return this.readTextPaged(path, onProgress, signal);
   }
 
+  private async getFilesystemCapabilities(signal?: AbortSignal): Promise<BleFilesystemCapabilities> {
+    if (this.fsCapabilities) return this.fsCapabilities;
+
+    let lines: string[];
+    try {
+      lines = await this.collectLines('fs_capabilities', FILE_CAPABILITIES_TIMEOUT, 'fs_capabilities', signal);
+    } catch (err) {
+      if (signal?.aborted || isAbortError(err)) throw err;
+      this.log('warning', 'Runtime svarede ikke på fs_capabilities; prøver en lille fs_read_page som kompatibilitetstest.');
+      return {
+        pageRead: true,
+        maxPageSize: FILE_READ_PAGE_SIZES[0],
+        validated: false,
+      };
+    }
+
+    const error = lines.find((line) => line.startsWith('ERR'));
+    if (error) throw new Error(error);
+
+    const capabilityLine = lines.find((line) => line.startsWith('fs_capabilities,'));
+    if (!capabilityLine) {
+      throw new Error('Kunne ikke validere Picoens Bluetooth-filsystem. Runtime sendte ikke fs_capabilities.');
+    }
+
+    const parts = capabilityLine.split(',');
+    const fields = new Map<string, string>();
+    for (let i = 1; i < parts.length - 1; i += 2) {
+      fields.set(parts[i], parts[i + 1]);
+    }
+
+    const maxPageSize = parseInt(fields.get('max_page') ?? '', 10);
+    const capabilities: BleFilesystemCapabilities = {
+      version: fields.get('version') || undefined,
+      pageRead: fields.get('page_read') === '1',
+      maxPageSize: Number.isFinite(maxPageSize) && maxPageSize > 0 ? maxPageSize : 32,
+      validated: true,
+    };
+
+    if (!capabilities.pageRead) {
+      throw new Error('Picoens Bluetooth-runtime meldte, at paged file-read ikke er understøttet.');
+    }
+
+    this.fsCapabilities = capabilities;
+    return capabilities;
+  }
+
   private async readTextPaged(path: string, onProgress?: FileReadProgress, signal?: AbortSignal): Promise<string> {
+    const capabilities = await this.getFilesystemCapabilities(signal);
+    let pageSizeIndex = 0;
+    let maxPageSizeIndex = getMaxReadPageSizeIndex(capabilities.maxPageSize);
     let offset = 0;
     let total: number | null = null;
     let hex = '';
@@ -459,7 +519,20 @@ export class PicoProtocol {
 
     for (let page = 0; page < 512; page += 1) {
       throwIfAborted(signal);
-      const lines = await this.readPageWithRetry(path, offset, signal);
+      const firstPage = offset === 0;
+      onProgress?.(firstPage ? 7 : 8, firstPage ? 'Beder Pico om første datapakke...' : `Beder Pico om byte ${offset}...`);
+      let result: { lines: string[]; nextPageSizeIndex: number; maxPageSizeIndex: number };
+      try {
+        result = await this.readPageWithRetry(path, offset, pageSizeIndex, maxPageSizeIndex, signal);
+      } catch (err) {
+        if (firstPage && !capabilities.validated && err instanceof Error) {
+          throw new Error(`Kunne ikke validere Picoens Bluetooth-filsystem, og første fs_read_page fejlede: ${err.message}`);
+        }
+        throw err;
+      }
+      const lines = result.lines;
+      pageSizeIndex = result.nextPageSizeIndex;
+      maxPageSizeIndex = result.maxPageSizeIndex;
       throwIfAborted(signal);
       const error = lines.find((line) => line.startsWith('ERR'));
       if (error) throw new Error(error);
@@ -492,28 +565,44 @@ export class PicoProtocol {
     throw new Error('ERR: fs_read_page too many pages');
   }
 
-  private async readPageWithRetry(path: string, offset: number, signal?: AbortSignal): Promise<string[]> {
+  private async readPageWithRetry(
+    path: string,
+    offset: number,
+    pageSizeIndex: number,
+    maxPageSizeIndex: number,
+    signal?: AbortSignal,
+  ): Promise<{ lines: string[]; nextPageSizeIndex: number; maxPageSizeIndex: number }> {
     let lastErr: unknown;
-    for (const pageSize of FILE_READ_FALLBACK_PAGE_SIZES) {
+    let currentIndex = Math.min(pageSizeIndex, maxPageSizeIndex);
+    while (currentIndex >= 0) {
+      const pageSize = FILE_READ_PAGE_SIZES[currentIndex];
       for (let attempt = 1; attempt <= FILE_READ_PAGE_ATTEMPTS; attempt += 1) {
         throwIfAborted(signal);
         try {
-          return await this.collectLines(
+          const lines = await this.collectLines(
             `fs_read_page,${protocolField(path)},${offset},${pageSize}`,
             FILE_TRANSFER_TIMEOUT,
             `fs_read_page ${offset}`,
             signal,
           );
+          return {
+            lines,
+            nextPageSizeIndex: Math.min(currentIndex + 1, maxPageSizeIndex),
+            maxPageSizeIndex,
+          };
         } catch (err) {
           if (signal?.aborted || isAbortError(err)) throw err;
           lastErr = err;
-          const hasMoreAttempts = attempt < FILE_READ_PAGE_ATTEMPTS || pageSize !== FILE_READ_FALLBACK_PAGE_SIZES[FILE_READ_FALLBACK_PAGE_SIZES.length - 1];
+          const hasMoreAttempts = attempt < FILE_READ_PAGE_ATTEMPTS || currentIndex > 0;
           if (hasMoreAttempts) {
             this.log('warning', `fs_read_page ${offset} (${pageSize} bytes): forsøg ${attempt}/${FILE_READ_PAGE_ATTEMPTS} mislykkedes, prøver igen`);
             await delay(120 + attempt * 120);
           }
         }
       }
+      if (currentIndex === 0) break;
+      maxPageSizeIndex = Math.max(0, currentIndex - 1);
+      currentIndex = maxPageSizeIndex;
     }
     throw lastErr instanceof Error ? lastErr : new Error(`Timeout: fs_read_page ${offset}`);
   }
@@ -634,9 +723,18 @@ export class PicoProtocol {
     this.collectingLines = false;
     this.lineResolve = null;
     this.lineReject = null;
+    this.fsCapabilities = null;
     this.stream.reset();
     this.events.onDisconnect?.();
   }
+}
+
+function getMaxReadPageSizeIndex(maxPageSize: number): number {
+  let result = 0;
+  for (let i = 0; i < FILE_READ_PAGE_SIZES.length; i += 1) {
+    if (FILE_READ_PAGE_SIZES[i] <= maxPageSize) result = i;
+  }
+  return result;
 }
 
 function hexToBytes(hex: string): Uint8Array {

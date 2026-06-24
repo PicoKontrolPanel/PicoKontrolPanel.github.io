@@ -714,6 +714,9 @@ class BLEPeripheral:
         elif msg.startswith("fs_list"):
             self._handle_fs_list(msg)
 
+        elif msg == "fs_capabilities":
+            self._handle_fs_capabilities()
+
         elif msg.startswith("fs_read_page,"):
             self._handle_fs_read_page(msg)
 
@@ -1038,6 +1041,12 @@ class BLEPeripheral:
             self._send_reliable_stream(lines)
         except Exception as e:
             self._send_reliable_stream(["ERR: fs_list failed {}".format(e), "__END__"])
+
+    def _handle_fs_capabilities(self):
+        self._send_reliable_stream([
+            "fs_capabilities,version,{},page_read,1,max_page,192".format(__version__),
+            "__END__",
+        ])
 
     def _handle_fs_read_page(self, msg):
         parts = msg.split(",", 3)

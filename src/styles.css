@@ -1445,6 +1445,8 @@ button:disabled {
 
 .ide-task-progress {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
   gap: 6px;
   margin: -2px 0 8px;
   color: var(--muted);
@@ -1452,18 +1454,23 @@ button:disabled {
 }
 
 .ide-task-progress div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  display: contents;
   font-size: 0.78rem;
 }
 
+.ide-task-progress span {
+  grid-column: 1 / -1;
+}
+
 .ide-task-progress strong {
+  grid-column: 2;
+  grid-row: 2;
   color: var(--red);
 }
 
 .ide-task-progress i {
+  grid-column: 1;
+  grid-row: 2;
   display: block;
   height: 7px;
   border-radius: 999px;
@@ -1473,6 +1480,8 @@ button:disabled {
 }
 
 .ide-task-cancel {
+  grid-column: 3;
+  grid-row: 2;
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
