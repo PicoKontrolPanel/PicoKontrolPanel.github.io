@@ -1194,6 +1194,14 @@ button:disabled {
   color: #b07208;
 }
 
+.term-technical {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+}
+
 .row {
   display: flex;
   gap: 12px;

@@ -9,12 +9,14 @@ import { PicoFilesystem, type PicoFileEntry } from '../serial/picoFilesystem';
 import { REQUIRED_RUNTIME_FILES, type RuntimeFileCheck } from '../serial/runtimeFiles';
 import { developerModeStatus, SerialTransport, type SerialLogLevel } from '../serial/serialTransport';
 import { analyzeOfflineMicroPython, runOfflineMicroPython } from '../serial/offlineMicroPython';
-import { loadIdeDrafts, saveIdeDrafts, type IdeDraft } from '../lib/storage';
+import { explainMicroPythonError } from '../serial/microPythonErrors';
+import { loadIdeDrafts, loadIdeSettings, saveIdeDrafts, saveIdeSettings, type IdeDraft } from '../lib/storage';
 import { useStore } from '../store/store';
 
 interface TerminalLine {
   level: SerialLogLevel;
   text: string;
+  technical?: string;
 }
 
 interface TaskProgress {
@@ -104,7 +106,8 @@ export function PicoIdeScreen() {
   const [picoSnapshots, setPicoSnapshots] = useState<Record<string, string>>({});
   const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>({});
   const [autocomplete, setAutocomplete] = useState<AutocompleteState | null>(null);
-  const [clearTerminalOnRun, setClearTerminalOnRun] = useState(false);
+  const [clearTerminalOnRun, setClearTerminalOnRun] = useState(() => loadIdeSettings().clearTerminalOnRun);
+  const [simplifiedErrors, setSimplifiedErrors] = useState(() => loadIdeSettings().simplifiedErrors);
   const [screenTooSmall, setScreenTooSmall] = useState(() => typeof window !== 'undefined' && window.innerWidth < IDE_MIN_WIDTH);
   const transportRef = useRef<SerialTransport | null>(null);
   const replRef = useRef<MicroPythonRepl | null>(null);
@@ -153,6 +156,15 @@ export function PicoIdeScreen() {
 
   function pushLine(level: SerialLogLevel, text: string) {
     setLines((current) => [...current.slice(-140), { level, text }]);
+  }
+
+  function pushMicroPythonError(errorText: string, sourceCode = editorText, level: SerialLogLevel = 'error') {
+    if (!simplifiedErrors) {
+      pushLine(level, errorText);
+      return;
+    }
+    const explanation = explainMicroPythonError(errorText, sourceCode);
+    setLines((current) => [...current.slice(-140), { level, text: explanation.simple, technical: explanation.technical }]);
   }
 
   function setEditorDraft(nextPath: string, content: string, source: FileLocation = activeSource) {
@@ -379,6 +391,10 @@ export function PicoIdeScreen() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [lines, terminalFollow]);
+
+  useEffect(() => {
+    saveIdeSettings({ clearTerminalOnRun, simplifiedErrors });
+  }, [clearTerminalOnRun, simplifiedErrors]);
 
   useEffect(() => {
     const onResize = () => setScreenTooSmall(window.innerWidth < IDE_MIN_WIDTH);
@@ -1154,7 +1170,7 @@ export function PicoIdeScreen() {
           pushLine(issue.level === 'error' ? 'error' : 'warning', `${prefix}${issue.text}`);
         }
         if (result.output.trim()) pushLine('info', result.output);
-        if (result.error.trim()) pushLine(result.unavailable ? 'warning' : 'error', result.error);
+        if (result.error.trim()) pushMicroPythonError(result.error, editorText, result.unavailable ? 'warning' : 'error');
         if (result.ok && !streamedOutput && !result.output.trim() && !result.error.trim()) pushLine('success', 'Offline MicroPython kørte uden output.');
       } finally {
         offlineAbortRef.current = null;
@@ -1196,7 +1212,7 @@ export function PicoIdeScreen() {
     try {
       const result = await repl.exec(editorText, 20000);
       if (result.output.trim()) pushLine('info', result.output);
-      if (result.error.trim()) pushLine('error', result.error);
+      if (result.error.trim()) pushMicroPythonError(result.error, editorText);
       if (!result.output.trim() && !result.error.trim()) pushLine('success', 'Koden kørte uden output.');
     } catch (err) {
       pushLine('error', err instanceof Error ? err.message : 'Kunne ikke køre koden.');
@@ -1629,6 +1645,16 @@ export function PicoIdeScreen() {
             <h2>Terminal</h2>
             <div className="ide-mini-actions">
               <button
+                className={`btn btn-outline ide-tool-btn ide-terminal-toggle ${simplifiedErrors ? 'active' : ''}`}
+                type="button"
+                onClick={() => setSimplifiedErrors((value) => !value)}
+                aria-label={simplifiedErrors ? 'Vis enkle fejl' : 'Vis tekniske fejl'}
+                aria-pressed={simplifiedErrors}
+                title={simplifiedErrors ? 'Viser enkle fejlbeskeder' : 'Viser tekniske fejlbeskeder'}
+              >
+                <Glyph name="debugger" size={18} />
+              </button>
+              <button
                 className={`btn btn-outline ide-terminal-toggle ${clearTerminalOnRun ? 'active' : ''}`}
                 type="button"
                 onClick={() => setClearTerminalOnRun((value) => !value)}
@@ -1649,6 +1675,9 @@ export function PicoIdeScreen() {
               lines.map((line, idx) => (
                 <div className={`term-line term-${line.level}`} key={`${idx}-${line.text}`}>
                   {line.text}
+                  {!simplifiedErrors && line.technical && (
+                    <pre className="term-technical">{line.technical}</pre>
+                  )}
                 </div>
               ))
             )}
