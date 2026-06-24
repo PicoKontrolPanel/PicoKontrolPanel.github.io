@@ -60,6 +60,10 @@ function throwIfAborted(signal?: AbortSignal): void {
   throw new DOMException('BLE file read cancelled', 'AbortError');
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
 function protocolField(value: string): string {
   return value.replace(/[\r\n,]/g, ' ').trim();
 }
@@ -76,6 +80,8 @@ export class PicoProtocol {
   private collectingLines = false;
   private lineBuffer: string[] = [];
   private lineResolve: ((lines: string[]) => void) | null = null;
+  private lineReject: ((err: unknown) => void) | null = null;
+  private lineCollectId = 0;
 
   private controlPumpActive = false;
   private pendingButtons: string[] = [];
@@ -193,24 +199,50 @@ export class PicoProtocol {
     });
   }
 
-  private async collectLines(command: string, timeoutMs: number, label: string): Promise<string[]> {
+  private async collectLines(command: string, timeoutMs: number, label: string, signal?: AbortSignal): Promise<string[]> {
+    throwIfAborted(signal);
+    const collectId = this.lineCollectId + 1;
+    this.lineCollectId = collectId;
     this.collectingLines = true;
     this.lineBuffer = [];
 
     const linesPromise = new Promise<string[]>((resolve, reject) => {
-      this.lineResolve = resolve;
-      const timer = setTimeout(() => {
-        if (this.collectingLines) {
-          this.collectingLines = false;
-          this.lineResolve = null;
-          reject(new Error(`Timeout: ${label}`));
+      let settled = false;
+      const isCurrentCollection = () => this.lineCollectId === collectId;
+      const cleanup = () => {
+        settled = true;
+        if (isCurrentCollection()) {
+          this.lineReject = null;
         }
+        signal?.removeEventListener('abort', abort);
+      };
+      const fail = (err: unknown) => {
+        if (settled) return;
+        clearTimeout(timer);
+        if (isCurrentCollection()) {
+          this.collectingLines = false;
+          this.lineBuffer = [];
+          this.lineResolve = null;
+        }
+        cleanup();
+        reject(err);
+      };
+      const abort = () => {
+        fail(new DOMException('BLE file read cancelled', 'AbortError'));
+      };
+      const timer = setTimeout(() => {
+        if (isCurrentCollection()) fail(new Error(`Timeout: ${label}`));
       }, timeoutMs);
+      this.lineResolve = resolve;
+      this.lineReject = fail;
       const origResolve = this.lineResolve;
       this.lineResolve = (lines) => {
+        if (!isCurrentCollection()) return;
         clearTimeout(timer);
+        cleanup();
         origResolve?.(lines);
       };
+      signal?.addEventListener('abort', abort, { once: true });
     });
 
     await this.transport.writeLine(command);
@@ -435,7 +467,10 @@ export class PicoProtocol {
       const pageLine = lines.find((line) => line.startsWith('fs_page,'));
       if (!pageLine) throw new Error('ERR: fs_read_page missing data');
 
-      const [, , offsetRaw, totalRaw, hexChunk = ''] = pageLine.split(',', 5);
+      const [, pagePathRaw, offsetRaw, totalRaw, hexChunk = ''] = pageLine.split(',', 5);
+      if (pagePathRaw !== path) {
+        throw new Error('ERR: fs_read_page stale data');
+      }
       const pageOffset = parseInt(offsetRaw ?? '', 10);
       const nextTotal = parseInt(totalRaw ?? '', 10);
       if (!Number.isFinite(pageOffset) || pageOffset !== offset || !Number.isFinite(nextTotal)) {
@@ -467,8 +502,10 @@ export class PicoProtocol {
             `fs_read_page,${protocolField(path)},${offset},${pageSize}`,
             FILE_TRANSFER_TIMEOUT,
             `fs_read_page ${offset}`,
+            signal,
           );
         } catch (err) {
+          if (signal?.aborted || isAbortError(err)) throw err;
           lastErr = err;
           const hasMoreAttempts = attempt < FILE_READ_PAGE_ATTEMPTS || pageSize !== FILE_READ_FALLBACK_PAGE_SIZES[FILE_READ_FALLBACK_PAGE_SIZES.length - 1];
           if (hasMoreAttempts) {
@@ -593,8 +630,10 @@ export class PicoProtocol {
     this.waiters = [];
     this.collectingLayout = false;
     this.layoutResolve = null;
+    this.lineReject?.(new Error('Forbindelsen blev afbrudt.'));
     this.collectingLines = false;
     this.lineResolve = null;
+    this.lineReject = null;
     this.stream.reset();
     this.events.onDisconnect?.();
   }
