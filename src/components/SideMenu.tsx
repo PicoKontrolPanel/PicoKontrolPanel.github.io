@@ -24,7 +24,7 @@ export function SideMenu({ open }: SideMenuProps) {
   return (
     <>
       <div className={`scrim ${open ? 'open' : 'closing'}`} onClick={() => toggleSideMenu(false)} />
-      <nav className={`sidemenu ${open ? 'open' : 'closing'}`} aria-label="Sidemenu">
+      <nav className={`sidemenu sidemenu-${screen} ${open ? 'open' : 'closing'}`} aria-label="Sidemenu">
         {onDashboard && (
           <>
             <MenuButton label="Bruger" icon="user" onClick={() => openMenuPage('user-settings')} />
