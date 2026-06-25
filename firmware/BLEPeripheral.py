@@ -5,6 +5,7 @@ import struct
 import os
 import ubinascii
 import machine
+import sys
 
 __version__ = '0.6.0'
 __author__ = 'Christian Brochner Rasmussen'
@@ -52,7 +53,8 @@ class BLEPeripheral:
       - 'update'   -> 'ACK:update', then app streams 'update,...' lines + '__END__';
                       device saves and replies 'ACK: ...' + 'LAYOUT_SAVED'
 
-    Control commands (fire-and-forget, routed to on_write callback):
+    Control commands (fire-and-forget, routed to on_button/on_slider/on_toggle;
+    on_write is still available as a raw fallback):
       - 'button,<NAME>' / 'slider,<NAME>:<VALUE>' / 'toggle,<NAME>:<0|1>'
 
     Telemetry (device -> app, optional from main.py):
@@ -117,8 +119,12 @@ class BLEPeripheral:
 
         # ---- Callbacks for app-level logic
         self._on_write_callback = None
+        self._on_button_callback = None
+        self._on_slider_callback = None
+        self._on_toggle_callback = None
         self._on_connect_callback = None
         self._on_disconnect_callback = None
+        self._auto_bind_main_callbacks()
 
         # ---- Start up
         self._register_services()
@@ -970,12 +976,85 @@ class BLEPeripheral:
             self._send_reliable_stream(["ACK:settings_update"])
 
         else:
-            # Application commands ("button,STOP" / "slider,NAME:VALUE")
+            self._dispatch_app_command(msg)
+
+    def _number_value(self, value):
+        try:
+            n = float(value)
+            if n == int(n):
+                return int(n)
+            return n
+        except:
+            return value
+
+    def _auto_bind_main_callback(self, function_name, callback_attr):
+        try:
+            main_module = sys.modules.get("__main__")
+            callback = getattr(main_module, function_name, None)
+            if callable(callback):
+                setattr(self, callback_attr, callback)
+        except Exception as e:
+            print("Auto callback binding failed for", function_name, e)
+
+    def _auto_bind_main_callbacks(self):
+        """Use simple function names from main.py without extra setup lines."""
+        self._auto_bind_main_callback("on_write", "_on_write_callback")
+        self._auto_bind_main_callback("on_button", "_on_button_callback")
+        self._auto_bind_main_callback("on_slider", "_on_slider_callback")
+        self._auto_bind_main_callback("on_toggle", "_on_toggle_callback")
+        self._auto_bind_main_callback("on_connect", "_on_connect_callback")
+        self._auto_bind_main_callback("on_disconnect", "_on_disconnect_callback")
+
+    def _dispatch_app_command(self, msg):
+        """Route app controls to friendly callbacks, with on_write as a raw fallback."""
+        try:
+            command_type, payload = msg.split(",", 1)
+        except:
+            print("Unknown app message:", msg)
             if self._on_write_callback:
                 try:
                     self._on_write_callback(msg)
                 except Exception as e:
                     print("Write callback error:", e)
+            return
+
+        try:
+            if command_type == "button":
+                if self._on_button_callback:
+                    self._on_button_callback(payload)
+                    return
+
+            elif command_type == "slider":
+                try:
+                    name, value_s = payload.split(":", 1)
+                except:
+                    print("Bad slider payload:", payload)
+                    return
+                if self._on_slider_callback:
+                    self._on_slider_callback(name, self._number_value(value_s))
+                    return
+
+            elif command_type == "toggle":
+                try:
+                    name, value_s = payload.split(":", 1)
+                except:
+                    print("Bad toggle payload:", payload)
+                    return
+                if self._on_toggle_callback:
+                    self._on_toggle_callback(name, int(float(value_s)) == 1)
+                    return
+
+        except Exception as e:
+            print("Control callback error:", e)
+            return
+
+        if self._on_write_callback:
+            try:
+                self._on_write_callback(msg)
+            except Exception as e:
+                print("Write callback error:", e)
+        else:
+            print("Unhandled app command:", msg)
 
     def send_layout_to_unity(self):
         """Build and send layout payload once per request, ending with '__END__'."""
@@ -1313,6 +1392,15 @@ class BLEPeripheral:
 
     def on_write(self, callback):
         self._on_write_callback = callback
+
+    def on_button(self, callback):
+        self._on_button_callback = callback
+
+    def on_slider(self, callback):
+        self._on_slider_callback = callback
+
+    def on_toggle(self, callback):
+        self._on_toggle_callback = callback
 
     def on_connect(self, callback):
         self._on_connect_callback = callback

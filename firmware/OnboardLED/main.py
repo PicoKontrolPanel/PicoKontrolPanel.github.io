@@ -3,7 +3,7 @@ import utime as time
 from BLEPeripheral import BLEPeripheral
 
 
-# Onboard LED is the only hardware this test firmware drives.
+# Den indbyggede LED er den eneste hardware, dette testprogram styrer.
 led = Pin('LED', Pin.OUT)
 led.off()
 
@@ -18,53 +18,31 @@ BluetoothControls = (
 )
 
 
-def _blink_interval_ms(value):
-    value = max(1, min(100, value))
-    return int(900 - (value / 100) * 820)
-
-
-def _set_led_enabled(value):
+def on_button(name):
+    """Reager på knapper fra appen."""
     global led_enabled, _blink_state
-    led_enabled = bool(value)
-    _blink_state = False
-    led.value(1 if led_enabled else 0)
-
-
-def handle_receive(msg):
-    """Handle app commands: 'button,<NAME>' or 'slider,BLINK:<VALUE>'."""
-    global blink_speed
-    try:
-        command_type, payload = msg.split(',', 1)
-    except ValueError:
-        print('Unknown message:', msg)
-        return
-
-    if command_type == 'button':
-        if payload == 'TAEND':
-            _set_led_enabled(True)
-            print('LED on')
-        elif payload == 'SLUK':
-            _set_led_enabled(False)
-            print('LED off')
-        else:
-            print('Unknown button command:', payload)
-
-    elif command_type == 'slider':
-        try:
-            name, value_s = payload.split(':', 1)
-            value = int(float(value_s))
-        except ValueError:
-            print('Bad slider payload:', payload)
-            return
-
-        if name == 'BLINK':
-            blink_speed = max(0, min(100, value))
-            print('Blink ->', blink_speed)
-        else:
-            print('Unknown slider:', name)
-
+    if name == 'TAEND':
+        led_enabled = True
+        _blink_state = False
+        led.on()
+        print('LED on')
+    elif name == 'SLUK':
+        led_enabled = False
+        _blink_state = False
+        led.off()
+        print('LED off')
     else:
-        print('Unknown command type:', command_type)
+        print('Unknown button:', name)
+
+
+def on_slider(name, value):
+    """Reager på sliders fra appen."""
+    global blink_speed
+    if name == 'BLINK':
+        blink_speed = int(value)
+        print('Blink ->', blink_speed)
+    else:
+        print('Unknown slider:', name)
 
 
 def on_connect():
@@ -72,16 +50,15 @@ def on_connect():
 
 
 def on_disconnect():
-    global blink_speed
+    global led_enabled, blink_speed, _blink_state
+    led_enabled = False
     blink_speed = 0
-    _set_led_enabled(False)
+    _blink_state = False
+    led.off()
     print('BLE client disconnected')
 
 
 ble = BLEPeripheral(base_controls=BluetoothControls, device_base_name='LED')
-ble.on_write(handle_receive)
-ble.on_connect(on_connect)
-ble.on_disconnect(on_disconnect)
 
 
 while True:
@@ -91,7 +68,7 @@ while True:
     elif blink_speed > 0:
         _blink_state = not _blink_state
         led.value(1 if _blink_state else 0)
-        time.sleep_ms(_blink_interval_ms(blink_speed))
+        time.sleep_ms(int(900 - (blink_speed / 100) * 820))
     else:
         led.on()
         time.sleep_ms(100)

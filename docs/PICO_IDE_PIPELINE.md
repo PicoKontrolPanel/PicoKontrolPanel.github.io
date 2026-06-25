@@ -214,7 +214,8 @@ predictable classroom use over clever synchronization.
    - The old `Læs` button is intentionally removed; clicking a file loads it, and `Opdater` reloads the file list.
 5. In progress: add safe installer for runtime files and library bundles.
    - The USB panel now checks required runtime files and can install missing/outdated files.
-   - Installable files are sourced from `firmware/`: program variants such as `OnboardLED/main.py` and `TankControl/main.py` install to `/main.py`, followed by shared libraries such as `BLEPeripheral.py`, `PicoRobotics.py`, and `hcsr04.py`.
+   - Installable files are sourced from `firmware/`: program variants such as `OnboardLED/main.py`, `TankControl/main.py`, and `RadarControl/main.py` install to `/main.py`, followed by shared libraries such as `BLEPeripheral.py`, `PicoRobotics.py`, and `hcsr04.py`.
+   - These three bundled programs demonstrate the current four control-panel elements: buttons, sliders, toggles, and radar telemetry.
    - Installer writes through a temporary file, verifies it, keeps a `.bak`, then promotes the file.
 6. In progress: add code execution controls.
    - `Kør` executes the current editor contents through raw REPL.
