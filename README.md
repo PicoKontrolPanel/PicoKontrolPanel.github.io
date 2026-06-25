@@ -131,8 +131,7 @@ BluetoothControls = (
 ```
 
 Control names must be 14 characters or fewer. They must match the names checked
-inside the friendly callbacks. `BLEPeripheral` automatically connects these
-functions when they are defined before `BLEPeripheral(...)` is created:
+inside the friendly callbacks:
 
 ```python
 def on_button(name):
@@ -146,9 +145,16 @@ def on_slider(name, value):
 def on_toggle(name, value):
     if name == 'SCAN':
         scan_enabled = value
+
+ble = BLEPeripheral(
+    base_controls=BluetoothControls,
+    device_base_name='MitProjekt',
+    callbacks=globals(),
+)
 ```
 
-The same automatic convention works for `on_connect()` and `on_disconnect()`.
+The `callbacks=globals()` part lets `BLEPeripheral` find `on_button`,
+`on_slider`, `on_toggle`, `on_connect`, and `on_disconnect` in `main.py`.
 For advanced projects, the explicit setup methods such as
 `ble.on_slider(callback)` and `ble.on_write(callback)` are still available.
 

@@ -70,7 +70,7 @@ class BLEPeripheral:
     Name is stable and derived ONLY from device_base_name.
     """
 
-    def __init__(self, base_controls=None, device_base_name="Device"):
+    def __init__(self, base_controls=None, device_base_name="Device", callbacks=None):
         # ---- BLE state
         self.ble = ubluetooth.BLE()
         self.ble.active(True)
@@ -124,7 +124,12 @@ class BLEPeripheral:
         self._on_toggle_callback = None
         self._on_connect_callback = None
         self._on_disconnect_callback = None
-        self._auto_bind_main_callbacks()
+        if callbacks is None:
+            try:
+                callbacks = sys._getframe(1).f_globals
+            except:
+                callbacks = None
+        self._auto_bind_main_callbacks(callbacks)
 
         # ---- Start up
         self._register_services()
@@ -987,23 +992,27 @@ class BLEPeripheral:
         except:
             return value
 
-    def _auto_bind_main_callback(self, function_name, callback_attr):
+    def _auto_bind_main_callback(self, function_name, callback_attr, caller_globals=None):
         try:
-            main_module = sys.modules.get("__main__")
-            callback = getattr(main_module, function_name, None)
+            callback = None
+            if caller_globals:
+                callback = caller_globals.get(function_name)
+            if callback is None:
+                main_module = sys.modules.get("__main__")
+                callback = getattr(main_module, function_name, None)
             if callable(callback):
                 setattr(self, callback_attr, callback)
         except Exception as e:
             print("Auto callback binding failed for", function_name, e)
 
-    def _auto_bind_main_callbacks(self):
+    def _auto_bind_main_callbacks(self, caller_globals=None):
         """Use simple function names from main.py without extra setup lines."""
-        self._auto_bind_main_callback("on_write", "_on_write_callback")
-        self._auto_bind_main_callback("on_button", "_on_button_callback")
-        self._auto_bind_main_callback("on_slider", "_on_slider_callback")
-        self._auto_bind_main_callback("on_toggle", "_on_toggle_callback")
-        self._auto_bind_main_callback("on_connect", "_on_connect_callback")
-        self._auto_bind_main_callback("on_disconnect", "_on_disconnect_callback")
+        self._auto_bind_main_callback("on_write", "_on_write_callback", caller_globals)
+        self._auto_bind_main_callback("on_button", "_on_button_callback", caller_globals)
+        self._auto_bind_main_callback("on_slider", "_on_slider_callback", caller_globals)
+        self._auto_bind_main_callback("on_toggle", "_on_toggle_callback", caller_globals)
+        self._auto_bind_main_callback("on_connect", "_on_connect_callback", caller_globals)
+        self._auto_bind_main_callback("on_disconnect", "_on_disconnect_callback", caller_globals)
 
     def _dispatch_app_command(self, msg):
         """Route app controls to friendly callbacks, with on_write as a raw fallback."""
