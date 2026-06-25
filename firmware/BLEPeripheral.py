@@ -5,7 +5,6 @@ import struct
 import os
 import ubinascii
 import machine
-import sys
 
 __version__ = '0.6.0'
 __author__ = 'Christian Brochner Rasmussen'
@@ -42,7 +41,7 @@ class BLEPeripheral:
     Handshake (app drives):
       - 'HELLO'                          -> 'ACK:HELLO'
       - 'who_are_you'                    -> 'unowned' | 'owned,<ownerID>,<iconID>,<canConnect>,<canEdit>,<ownerName>'
-      - 'ACK:ownership'                  -> 'READY:permission'  (staged, optional)
+      - 'ACK:ownership'                  -> 'READY:permission'
       - 'request_permission,<id>,<name>' -> 'perm,<canConnect>,<canEdit>'
                                             (denies + disconnects if private)
       - 'ACK:permission'                 -> (handshake complete)
@@ -124,11 +123,6 @@ class BLEPeripheral:
         self._on_toggle_callback = None
         self._on_connect_callback = None
         self._on_disconnect_callback = None
-        if callbacks is None:
-            try:
-                callbacks = sys._getframe(1).f_globals
-            except:
-                callbacks = None
         self._auto_bind_main_callbacks(callbacks)
 
         # ---- Start up
@@ -596,23 +590,6 @@ class BLEPeripheral:
                     except Exception as e:
                         print("Inbound processing error:", e)
 
-    def send(self, msg, chunk_size=20, delay_ms=0):
-        """Send over the notify characteristic, chunked to <= 20 bytes."""
-        if not self.connected or self.conn_handle is None:
-            print("No connected device to notify.")
-            return
-        try:
-            data = msg.encode()
-            for i in range(0, len(data), chunk_size):
-                part = data[i:i + chunk_size]
-                self.ble.gatts_write(self.handle_notify, part)
-                self.ble.gatts_notify(self.conn_handle, self.handle_notify, part)
-                if delay_ms > 0:
-                    time.sleep_ms(delay_ms)
-            self._log_sent(msg)
-        except Exception as e:
-            print("Notify failed:", e)
-
     def send_with_retry(self, msg, max_attempts=3, chunk_size=20, chunk_gap_ms=3):
         """Send an important protocol message, retrying on failure."""
         for attempt in range(1, max_attempts + 1):
@@ -703,7 +680,7 @@ class BLEPeripheral:
                     self.send_with_retry("ack:prep\n", max_attempts=3)
                 return
 
-        if msg == "ack:prep" or msg == "ACK:PREP" or msg == "ack:prep,{}".format(self._out_reliable_stream_id):
+        if msg == "ack:prep" or msg == "ack:prep,{}".format(self._out_reliable_stream_id):
             self._flush_pending_reliable_stream()
             return
 
@@ -787,7 +764,7 @@ class BLEPeripheral:
             print("Handshake complete")
 
         elif msg == "request":
-            self.send_layout_to_unity()
+            self.send_layout_to_web()
 
         elif msg.startswith("fs_list"):
             self._handle_fs_list(msg)
@@ -992,27 +969,24 @@ class BLEPeripheral:
         except:
             return value
 
-    def _auto_bind_main_callback(self, function_name, callback_attr, caller_globals=None):
+    def _auto_bind_main_callback(self, function_name, callback_attr, callbacks=None):
         try:
             callback = None
-            if caller_globals:
-                callback = caller_globals.get(function_name)
-            if callback is None:
-                main_module = sys.modules.get("__main__")
-                callback = getattr(main_module, function_name, None)
+            if callbacks:
+                callback = callbacks.get(function_name)
             if callable(callback):
                 setattr(self, callback_attr, callback)
         except Exception as e:
             print("Auto callback binding failed for", function_name, e)
 
-    def _auto_bind_main_callbacks(self, caller_globals=None):
-        """Use simple function names from main.py without extra setup lines."""
-        self._auto_bind_main_callback("on_write", "_on_write_callback", caller_globals)
-        self._auto_bind_main_callback("on_button", "_on_button_callback", caller_globals)
-        self._auto_bind_main_callback("on_slider", "_on_slider_callback", caller_globals)
-        self._auto_bind_main_callback("on_toggle", "_on_toggle_callback", caller_globals)
-        self._auto_bind_main_callback("on_connect", "_on_connect_callback", caller_globals)
-        self._auto_bind_main_callback("on_disconnect", "_on_disconnect_callback", caller_globals)
+    def _auto_bind_main_callbacks(self, callbacks=None):
+        """Bind callbacks passed from main.py with callbacks=globals()."""
+        self._auto_bind_main_callback("on_write", "_on_write_callback", callbacks)
+        self._auto_bind_main_callback("on_button", "_on_button_callback", callbacks)
+        self._auto_bind_main_callback("on_slider", "_on_slider_callback", callbacks)
+        self._auto_bind_main_callback("on_toggle", "_on_toggle_callback", callbacks)
+        self._auto_bind_main_callback("on_connect", "_on_connect_callback", callbacks)
+        self._auto_bind_main_callback("on_disconnect", "_on_disconnect_callback", callbacks)
 
     def _dispatch_app_command(self, msg):
         """Route app controls to friendly callbacks, with on_write as a raw fallback."""
@@ -1065,7 +1039,7 @@ class BLEPeripheral:
         else:
             print("Unhandled app command:", msg)
 
-    def send_layout_to_unity(self):
+    def send_layout_to_web(self):
         """Build and send layout payload once per request, ending with '__END__'."""
         lines = ["#VERSION,{}".format(LAYOUT_VERSION),
                  "#GRID,{},{}".format(self.grid_cols, self.grid_rows)]

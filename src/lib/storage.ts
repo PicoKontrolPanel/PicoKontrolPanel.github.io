@@ -1,4 +1,4 @@
-// Local-only persistence, mirroring Unity's userdata.json + SavedDevices.json.
+// Local-only persistence for user and saved-device records.
 // Nothing leaves the browser.
 import type { SavedDevice, User } from './types';
 

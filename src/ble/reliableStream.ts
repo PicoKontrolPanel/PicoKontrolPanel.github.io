@@ -63,7 +63,7 @@ export class ReliableStream {
       return;
     }
 
-    if (msg === 'ack:prep' || msg === 'ACK:PREP' || msg === `ack:prep,${this.outStreamId}`) {
+    if (msg === 'ack:prep' || msg === `ack:prep,${this.outStreamId}`) {
       void this.flushOutbound();
       return;
     }

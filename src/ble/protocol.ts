@@ -1,5 +1,5 @@
-// High-level protocol: handshake, layout request/save, control commands.
-// Sits on BleTransport (lines) + ReliableStream (framing). Mirrors AppManager.cs.
+// High-level web-app protocol: handshake, layout request/save, control commands.
+// Sits on BleTransport (lines) + ReliableStream (framing).
 
 import type { Control, Rotation, SliderRecenter, User } from '../lib/types';
 import { BleTransport, displayName } from './transport';
@@ -46,7 +46,6 @@ interface BleFilesystemCapabilities {
   maxPageSize: number;
   streamRead: boolean;
   streamChunkSize: number;
-  validated: boolean;
 }
 
 interface Waiter {
@@ -334,17 +333,12 @@ export class PicoProtocol {
     const reportedCanEdit = parts[4] !== undefined ? parseInt(parts[4], 10) === 1 : false;
     const ownerName = parts[5]?.trim() || undefined;
 
-    // Staged ack -> READY:permission. Optional; tolerate absence.
-    try {
-      await this.exchange('ACK:ownership', (l) => l === 'READY:permission', 'ACK:ownership', 1);
-    } catch {
-      this.log('info', 'READY:permission ikke modtaget (fortsætter).');
-    }
+    await this.exchange('ACK:ownership', (l) => l === 'READY:permission', 'ACK:ownership', 1);
 
     this.progress(66, 'Anmoder om adgang...');
     const permLine = await this.exchange(
       `request_permission,${user.userID},${protocolField(user.username)}`,
-      (l) => l.startsWith('perm,') || l.startsWith('permission_response,'),
+      (l) => l.startsWith('perm,'),
       'request_permission',
     );
     this.progress(76, 'Adgang vurderet');
@@ -530,20 +524,7 @@ export class PicoProtocol {
   private async getFilesystemCapabilities(signal?: AbortSignal): Promise<BleFilesystemCapabilities> {
     if (this.fsCapabilities) return this.fsCapabilities;
 
-    let lines: string[];
-    try {
-      lines = await this.collectLines('fs_capabilities', FILE_CAPABILITIES_TIMEOUT, 'fs_capabilities', signal);
-    } catch (err) {
-      if (signal?.aborted || isAbortError(err)) throw err;
-      this.log('warning', 'Runtime svarede ikke på fs_capabilities; prøver en lille fs_read_page som kompatibilitetstest.');
-      return {
-        pageRead: true,
-        maxPageSize: FILE_READ_PAGE_SIZES[0],
-        streamRead: false,
-        streamChunkSize: 0,
-        validated: false,
-      };
-    }
+    const lines = await this.collectLines('fs_capabilities', FILE_CAPABILITIES_TIMEOUT, 'fs_capabilities', signal);
 
     const error = lines.find((line) => line.startsWith('ERR'));
     if (error) throw new Error(error);
@@ -567,7 +548,6 @@ export class PicoProtocol {
       maxPageSize: Number.isFinite(maxPageSize) && maxPageSize > 0 ? maxPageSize : 32,
       streamRead: fields.get('stream_read') === '1',
       streamChunkSize: Number.isFinite(streamChunkSize) && streamChunkSize > 0 ? streamChunkSize : 128,
-      validated: true,
     };
 
     if (!capabilities.pageRead && !capabilities.streamRead) {
@@ -593,15 +573,7 @@ export class PicoProtocol {
       throwIfAborted(signal);
       const firstPage = offset === 0;
       if (firstPage) onProgress?.(7, loadingLabel);
-      let result: { lines: string[]; nextPageSizeIndex: number; maxPageSizeIndex: number };
-      try {
-        result = await this.readPageWithRetry(path, offset, pageSizeIndex, maxPageSizeIndex, signal);
-      } catch (err) {
-        if (firstPage && !capabilities.validated && err instanceof Error) {
-          throw new Error(`Kunne ikke validere Picoens Bluetooth-filsystem, og første fs_read_page fejlede: ${err.message}`);
-        }
-        throw err;
-      }
+      const result = await this.readPageWithRetry(path, offset, pageSizeIndex, maxPageSizeIndex, signal);
       const lines = result.lines;
       pageSizeIndex = result.nextPageSizeIndex;
       maxPageSizeIndex = result.maxPageSizeIndex;
