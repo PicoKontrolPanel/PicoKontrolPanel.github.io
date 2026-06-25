@@ -43,11 +43,6 @@ def _drive_motor(motor, value):
         board.motorOff(motor)
 
 
-def _apply_drive():
-    _drive_motor(1, left_speed)
-    _drive_motor(2, right_speed)
-
-
 def _stop_motors():
     global left_speed, right_speed
     left_speed = 0

@@ -41,6 +41,15 @@ def _clamp_distance(value):
     return value
 
 
+def _reset_scan():
+    global scan_enabled, scan_angle, scan_direction
+    scan_enabled = False
+    scan_angle = SERVO_MIN
+    scan_direction = 1
+    board.servoWrite(1, 90)
+    ble.send_toggle_state('SCAN', False)
+
+
 def handle_receive(msg):
     global scan_enabled
     try:
@@ -61,7 +70,6 @@ def handle_receive(msg):
 
     if name == 'SCAN':
         scan_enabled = int(float(value_s)) == 1
-        led.value(1 if scan_enabled else 0)
         ble.send_toggle_state('SCAN', scan_enabled)
         print('Scan ->', scan_enabled)
     else:
@@ -69,13 +77,14 @@ def handle_receive(msg):
 
 
 def on_connect():
-    led.value(1 if scan_enabled else 0)
-    ble.send_toggle_state('SCAN', scan_enabled)
+    led.on()
+    _reset_scan()
     print('BLE client connected')
 
 
 def on_disconnect():
     led.off()
+    _reset_scan()
     print('BLE client disconnected')
 
 
@@ -86,7 +95,7 @@ ble.on_disconnect(on_disconnect)
 
 
 while True:
-    if not scan_enabled:
+    if not scan_enabled or not ble.connected:
         time.sleep_ms(100)
         continue
 
