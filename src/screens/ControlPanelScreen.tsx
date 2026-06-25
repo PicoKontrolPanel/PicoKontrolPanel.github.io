@@ -12,9 +12,12 @@ export function ControlPanelScreen() {
   const editMode = useStore((s) => s.editMode);
   const active = useStore((s) => s.active);
   const sliderValues = useStore((s) => s.sliderValues);
+  const toggleValues = useStore((s) => s.toggleValues);
+  const radarPings = useStore((s) => s.radarPings);
   const toggleSideMenu = useStore((s) => s.toggleSideMenu);
   const sendButton = useStore((s) => s.sendButton);
   const sendSlider = useStore((s) => s.sendSlider);
+  const sendToggle = useStore((s) => s.sendToggle);
 
   const areaRef = useRef<HTMLDivElement>(null);
   const size = useElementSize(areaRef);
@@ -47,8 +50,11 @@ export function ControlPanelScreen() {
                     rect={rect}
                     disabled={false}
                     latestValue={control.type === 'slider' ? sliderValues[control.name] : undefined}
+                    toggleValue={control.type === 'toggle' ? toggleValues[control.name] : undefined}
+                    radarPings={control.type === 'radar' ? radarPings[control.name] : undefined}
                     onButton={sendButton}
                     onSlider={sendSlider}
+                    onToggle={sendToggle}
                   />
                 );
               })

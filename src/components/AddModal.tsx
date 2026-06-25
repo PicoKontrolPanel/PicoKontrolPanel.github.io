@@ -9,24 +9,30 @@ interface AddModalProps {
   onClose: () => void;
 }
 
+const labels: Record<Control['type'], string> = {
+  button: 'Knapper',
+  slider: 'Slidere',
+  toggle: 'Toggleknapper',
+  radar: 'Radar',
+};
+
 export function AddModal({ unplaced, onAdd, onClose }: AddModalProps) {
-  const [tab, setTab] = useState<'button' | 'slider'>('button');
+  const [tab, setTab] = useState<Control['type']>('button');
   const entries = unplaced.filter((c) => c.type === tab);
 
   return (
     <Modal title="Tilføj kontrol" onClose={onClose}>
       <div className="segmented" style={{ marginBottom: 16 }}>
-        <button type="button" className={tab === 'button' ? 'active' : ''} onClick={() => setTab('button')}>
-          Knapper
-        </button>
-        <button type="button" className={tab === 'slider' ? 'active' : ''} onClick={() => setTab('slider')}>
-          Slidere
-        </button>
+        {(['button', 'slider', 'toggle', 'radar'] as const).map((type) => (
+          <button key={type} type="button" className={tab === type ? 'active' : ''} onClick={() => setTab(type)}>
+            {labels[type]}
+          </button>
+        ))}
       </div>
 
       <div className="add-lists">
         {entries.length === 0 ? (
-          <div className="device-list-empty">Ingen ledige {tab === 'button' ? 'knapper' : 'slidere'}.</div>
+          <div className="device-list-empty">Ingen ledige {labels[tab].toLowerCase()}.</div>
         ) : (
           entries.map((c) => (
             <button key={c.name} type="button" className="add-entry" onClick={() => onAdd(c.name)}>

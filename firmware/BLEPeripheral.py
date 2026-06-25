@@ -25,7 +25,7 @@ _FLAG_NOTIFY            = const(0x0010)
 
 # -------------------- Protocol defs ------------------
 LAYOUT_VERSION         = 1
-ALLOWED_COMMAND_TYPES  = ["button", "slider"]
+ALLOWED_COMMAND_TYPES  = ["button", "slider", "toggle", "radar"]
 MAX_NAME_LENGTH        = 14
 SLIDER_RECENTER_MODES  = ["none", "bottom", "middle", "top"]
 
@@ -53,7 +53,11 @@ class BLEPeripheral:
                       device saves and replies 'ACK: ...' + 'LAYOUT_SAVED'
 
     Control commands (fire-and-forget, routed to on_write callback):
-      - 'button,<NAME>' / 'slider,<NAME>:<VALUE>'
+      - 'button,<NAME>' / 'slider,<NAME>:<VALUE>' / 'toggle,<NAME>:<0|1>'
+
+    Telemetry (device -> app, optional from main.py):
+      - 'radar,<NAME>,<ANGLE_DEGREES>,<DISTANCE_CM>'
+      - 'toggle_state,<NAME>,<0|1>'
 
     Every device->app reply is sent through the reliable stream framing
     (prep / ack:prep / numbered frames / miss), so the central must implement
@@ -185,6 +189,35 @@ class BLEPeripheral:
                     ctrl["max"] = ctrl["min"] + 1
                 if len(spec) >= 5 and spec[4] in SLIDER_RECENTER_MODES:
                     ctrl["recenter"] = spec[4]
+            elif ctrl_type == "toggle":
+                ctrl["initial"] = 0
+                if len(spec) >= 3:
+                    try:
+                        ctrl["initial"] = 1 if int(spec[2]) == 1 else 0
+                    except:
+                        ctrl["initial"] = 0
+            elif ctrl_type == "radar":
+                ctrl["minAngle"] = 0
+                ctrl["maxAngle"] = 180
+                ctrl["maxDistance"] = 200
+                ctrl["fadeMs"] = 1200
+                if len(spec) >= 4:
+                    try:
+                        ctrl["minAngle"] = int(float(spec[2]))
+                        ctrl["maxAngle"] = int(float(spec[3]))
+                    except:
+                        ctrl["minAngle"] = 0
+                        ctrl["maxAngle"] = 180
+                if len(spec) >= 5:
+                    try:
+                        ctrl["maxDistance"] = max(1, int(float(spec[4])))
+                    except:
+                        ctrl["maxDistance"] = 200
+                if len(spec) >= 6:
+                    try:
+                        ctrl["fadeMs"] = max(120, int(float(spec[5])))
+                    except:
+                        ctrl["fadeMs"] = 1200
             result.append(ctrl)
         print("Initialized base controls:", len(result))
         return result
@@ -347,6 +380,17 @@ class BLEPeripheral:
                         recenter = ctrl.get("recenter", "none")
                         f.write("{},{},{},{},{},{},{},{},{},{}\n".format(
                             ctrl['type'], ctrl['name'], x, y, w, h, r, mn, mx, recenter))
+                    elif ctrl["type"] == "toggle":
+                        initial = 1 if ctrl.get("initial", 0) == 1 else 0
+                        f.write("{},{},{},{},{},{},{},{}\n".format(
+                            ctrl['type'], ctrl['name'], x, y, w, h, r, initial))
+                    elif ctrl["type"] == "radar":
+                        f.write("{},{},{},{},{},{},{},{},{},{},{}\n".format(
+                            ctrl['type'], ctrl['name'], x, y, w, h, r,
+                            ctrl.get("minAngle", 0),
+                            ctrl.get("maxAngle", 180),
+                            ctrl.get("maxDistance", 200),
+                            ctrl.get("fadeMs", 1200)))
                     else:
                         f.write("{},{},{},{},{},{},{}\n".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
             # Atomic swap. littlefs rename overwrites atomically; FAT needs the
@@ -438,6 +482,29 @@ class BLEPeripheral:
                             override["max"] = override["min"] + 1
                         if parts[9] in SLIDER_RECENTER_MODES:
                             override["recenter"] = parts[9]
+                elif ctrl_type == "toggle":
+                    override["initial"] = 0
+                    if len(parts) >= 8:
+                        try:
+                            override["initial"] = 1 if int(float(parts[7])) == 1 else 0
+                        except:
+                            override["initial"] = 0
+                elif ctrl_type == "radar":
+                    override["minAngle"] = 0
+                    override["maxAngle"] = 180
+                    override["maxDistance"] = 200
+                    override["fadeMs"] = 1200
+                    if len(parts) >= 11:
+                        try:
+                            override["minAngle"] = int(float(parts[7]))
+                            override["maxAngle"] = int(float(parts[8]))
+                            override["maxDistance"] = max(1, int(float(parts[9])))
+                            override["fadeMs"] = max(120, int(float(parts[10])))
+                        except:
+                            override["minAngle"] = 0
+                            override["maxAngle"] = 180
+                            override["maxDistance"] = 200
+                            override["fadeMs"] = 1200
                 overrides[name] = override
             except Exception as e:
                 print("Skipping bad layout line:", line, "err:", e)
@@ -928,6 +995,17 @@ class BLEPeripheral:
                 recenter = ctrl.get("recenter", "none")
                 lines.append("{},{},{},{},{},{},{},{},{},{}".format(
                     ctrl['type'], ctrl['name'], x, y, w, h, r, mn, mx, recenter))
+            elif ctrl["type"] == "toggle":
+                initial = 1 if ctrl.get("initial", 0) == 1 else 0
+                lines.append("{},{},{},{},{},{},{},{}".format(
+                    ctrl['type'], ctrl['name'], x, y, w, h, r, initial))
+            elif ctrl["type"] == "radar":
+                lines.append("{},{},{},{},{},{},{},{},{},{},{}".format(
+                    ctrl['type'], ctrl['name'], x, y, w, h, r,
+                    ctrl.get("minAngle", 0),
+                    ctrl.get("maxAngle", 180),
+                    ctrl.get("maxDistance", 200),
+                    ctrl.get("fadeMs", 1200)))
             else:
                 lines.append("{},{},{},{},{},{},{}".format(ctrl['type'], ctrl['name'], x, y, w, h, r))
         lines.append("__END__")
@@ -979,6 +1057,19 @@ class BLEPeripheral:
                         override["recenter"] = parts[9]
                     if override.get("max") == override.get("min"):
                         override["max"] = override["min"] + 1
+                elif ctrl_type == "toggle" and len(parts) >= 8:
+                    try:
+                        override["initial"] = 1 if int(float(parts[7])) == 1 else 0
+                    except:
+                        override["initial"] = 0
+                elif ctrl_type == "radar" and len(parts) >= 11:
+                    try:
+                        override["minAngle"] = int(float(parts[7]))
+                        override["maxAngle"] = int(float(parts[8]))
+                        override["maxDistance"] = max(1, int(float(parts[9])))
+                        override["fadeMs"] = max(120, int(float(parts[10])))
+                    except:
+                        pass
                 overrides[name] = override
 
             updated = []
@@ -1191,6 +1282,35 @@ class BLEPeripheral:
             self._send_reliable_stream(["ERR: fs_delete failed {}".format(e)])
 
     # -------------------- External hooks --------------------
+    def send_radar(self, name, angle, distance_cm):
+        """Send one radar telemetry sample to the app: radar,<NAME>,<ANGLE>,<DISTANCE_CM>."""
+        if not self.connected:
+            return
+        try:
+            clean_name = self._protocol_field(name)
+            angle_value = int(float(angle))
+            distance_value = round(float(distance_cm), 1)
+            self.send_with_retry(
+                "radar,{},{},{}\n".format(clean_name, angle_value, distance_value),
+                max_attempts=1,
+            )
+        except Exception as e:
+            print("send_radar failed:", e)
+
+    def send_toggle_state(self, name, value):
+        """Send current toggle state to the app: toggle_state,<NAME>,<0|1>."""
+        if not self.connected:
+            return
+        try:
+            clean_name = self._protocol_field(name)
+            state = 1 if value else 0
+            self.send_with_retry(
+                "toggle_state,{},{:d}\n".format(clean_name, state),
+                max_attempts=1,
+            )
+        except Exception as e:
+            print("send_toggle_state failed:", e)
+
     def on_write(self, callback):
         self._on_write_callback = callback
 

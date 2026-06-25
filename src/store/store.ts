@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Control, SavedDevice, User } from '../lib/types';
+import type { Control, RadarPing, SavedDevice, User } from '../lib/types';
 import { generateUserID } from '../lib/id';
 import {
   clearAppData,
@@ -81,6 +81,8 @@ interface AppState {
   active: ActiveDevice | null;
   layout: Control[];
   sliderValues: Record<string, number>;
+  toggleValues: Record<string, boolean>;
+  radarPings: Record<string, RadarPing[]>;
 
   logs: LogEntry[];
   sideMenuOpen: boolean;
@@ -130,6 +132,7 @@ interface AppState {
 
   sendButton: (name: string) => void;
   sendSlider: (name: string, value: number) => void;
+  sendToggle: (name: string, value: boolean) => void;
   saveLayout: (controls: Control[]) => Promise<void>;
 
   setEditMode: (on: boolean) => void;
@@ -159,6 +162,22 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function initialToggleValues(layout: Control[]): Record<string, boolean> {
+  return Object.fromEntries(
+    layout.filter((control) => control.type === 'toggle').map((control) => [control.name, !!control.toggleInitial]),
+  );
+}
+
+function mergeToggleValues(layout: Control[], current: Record<string, boolean>): Record<string, boolean> {
+  const initial = initialToggleValues(layout);
+  for (const control of layout) {
+    if (control.type === 'toggle' && current[control.name] !== undefined) {
+      initial[control.name] = current[control.name];
+    }
+  }
+  return initial;
+}
+
 export const useStore = create<AppState>((set, get) => {
   function pushLog(level: LogLevel, message: string): void {
     set((s) => ({
@@ -178,6 +197,29 @@ export const useStore = create<AppState>((set, get) => {
   protocol = new PicoProtocol({
     onProgress: (value, label) => set({ progress: { value, label } }),
     onLog: (level, message) => pushLog(level, message),
+    onRadar: (name, angle, distance) => {
+      const now = Date.now();
+      const ping: RadarPing = {
+        id: `${now}-${Math.random().toString(36).slice(2)}`,
+        angle,
+        distance,
+        createdAt: now,
+      };
+      set((s) => {
+        const control = s.layout.find((c) => c.type === 'radar' && c.name === name);
+        const fadeMs = control?.radarFadeMs ?? 1200;
+        const current = s.radarPings[name] ?? [];
+        return {
+          radarPings: {
+            ...s.radarPings,
+            [name]: [...current.filter((p) => now - p.createdAt <= fadeMs), ping].slice(-80),
+          },
+        };
+      });
+    },
+    onToggleState: (name, value) => {
+      set((s) => ({ toggleValues: { ...s.toggleValues, [name]: value } }));
+    },
     onDisconnect: () => {
       const { screen, active, picoIdeOrigin } = get();
       if (suppressNextDisconnect) {
@@ -202,6 +244,8 @@ export const useStore = create<AppState>((set, get) => {
           active: null,
           layout: [],
           sliderValues: {},
+          toggleValues: {},
+          radarPings: {},
           editMode: false,
           sideMenuOpen: false,
           menuPage: null,
@@ -224,6 +268,8 @@ export const useStore = create<AppState>((set, get) => {
     active: null,
     layout: [],
     sliderValues: {},
+    toggleValues: {},
+    radarPings: {},
     logs: [],
     sideMenuOpen: false,
     debuggerOpen: false,
@@ -325,9 +371,12 @@ export const useStore = create<AppState>((set, get) => {
 
         const lines = await protocol.requestLayout();
         const grid = parseGridHeader(lines);
+        const layout = parseLayout(lines);
         set({
-          layout: parseLayout(lines),
+          layout,
           sliderValues: {},
+          toggleValues: mergeToggleValues(layout, get().toggleValues),
+          radarPings: {},
           active: {
             deviceID,
             deviceName,
@@ -374,9 +423,12 @@ export const useStore = create<AppState>((set, get) => {
 
         const lines = await protocol.requestLayout();
         const grid = parseGridHeader(lines);
+        const layout = parseLayout(lines);
         set({
-          layout: parseLayout(lines),
+          layout,
           sliderValues: {},
+          toggleValues: mergeToggleValues(layout, get().toggleValues),
+          radarPings: {},
           active: {
             ...active,
             iconID,
@@ -448,6 +500,8 @@ export const useStore = create<AppState>((set, get) => {
         active: null,
         layout: [],
         sliderValues: {},
+        toggleValues: {},
+        radarPings: {},
         editMode: false,
         sideMenuOpen: false,
         menuPage: null,
@@ -502,6 +556,8 @@ export const useStore = create<AppState>((set, get) => {
         active: fromControl ? s.active : null,
         layout: fromControl ? s.layout : [],
         sliderValues: fromControl ? s.sliderValues : {},
+        toggleValues: fromControl ? s.toggleValues : {},
+        radarPings: fromControl ? s.radarPings : {},
         editMode: false,
         sideMenuOpen: false,
         menuPage: null,
@@ -589,6 +645,8 @@ export const useStore = create<AppState>((set, get) => {
               active: s.active,
               layout: s.layout,
               sliderValues: s.sliderValues,
+              toggleValues: s.toggleValues,
+              radarPings: s.radarPings,
               editMode: false,
               sideMenuOpen: false,
               menuPage: null,
@@ -608,6 +666,8 @@ export const useStore = create<AppState>((set, get) => {
         active: null,
         layout: [],
         sliderValues: {},
+        toggleValues: {},
+        radarPings: {},
         editMode: false,
         sideMenuOpen: false,
         menuPage: null,
@@ -643,6 +703,10 @@ export const useStore = create<AppState>((set, get) => {
     sendSlider: (name, value) => {
       set((s) => ({ sliderValues: { ...s.sliderValues, [name]: value } }));
       protocol?.enqueueSlider(name, value);
+    },
+    sendToggle: (name, value) => {
+      set((s) => ({ toggleValues: { ...s.toggleValues, [name]: value } }));
+      protocol?.enqueueToggle(name, value);
     },
 
     saveLayout: async (controls) => {

@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
-import type { Control, Rotation } from '../../lib/types';
+import type { Control, RadarPing, Rotation } from '../../lib/types';
 import type { ControlRect } from '../../grid/geometry';
 
 interface PlacedProps {
@@ -8,8 +8,11 @@ interface PlacedProps {
   rect: ControlRect;
   disabled: boolean;
   latestValue?: number;
+  toggleValue?: boolean;
+  radarPings?: RadarPing[];
   onButton: (name: string) => void;
   onSlider: (name: string, value: number) => void;
+  onToggle: (name: string, value: boolean) => void;
 }
 
 const TEXT_PAD = 8;
@@ -58,7 +61,17 @@ function sliderTextMetrics(
   };
 }
 
-export function PlayControl({ control, rect, disabled, latestValue, onButton, onSlider }: PlacedProps) {
+export function PlayControl({
+  control,
+  rect,
+  disabled,
+  latestValue,
+  toggleValue,
+  radarPings = [],
+  onButton,
+  onSlider,
+  onToggle,
+}: PlacedProps) {
   const style: React.CSSProperties = {
     left: rect.cx,
     top: rect.cy,
@@ -86,6 +99,36 @@ export function PlayControl({ control, rect, disabled, latestValue, onButton, on
     );
   }
 
+  if (control.type === 'toggle') {
+    const isOn = !!toggleValue;
+    return (
+      <div className="control" style={style}>
+        <button
+          className={`control-toggle ${isOn ? 'on' : ''}`}
+          type="button"
+          disabled={disabled}
+          aria-pressed={isOn}
+          style={{ width: '100%', height: '100%', fontSize: controlLabelFontSize(control.name, rect.width, rect.height) }}
+          onPointerDown={(e) => {
+            if (disabled) return;
+            e.preventDefault();
+            onToggle(control.name, !isOn);
+          }}
+        >
+          <span>{control.name}</span>
+        </button>
+      </div>
+    );
+  }
+
+  if (control.type === 'radar') {
+    return (
+      <div className="control" style={style}>
+        <RadarVisual control={control} pings={radarPings} width={rect.width} height={rect.height} />
+      </div>
+    );
+  }
+
   return (
     <div className="control" style={style}>
       <SliderControl
@@ -98,6 +141,262 @@ export function PlayControl({ control, rect, disabled, latestValue, onButton, on
       />
     </div>
   );
+}
+
+export function RadarVisual({
+  control,
+  pings,
+  width,
+  height,
+  preview = false,
+}: {
+  control: Control;
+  pings: RadarPing[];
+  width: number;
+  height: number;
+  preview?: boolean;
+}) {
+  const [, setTick] = useState(0);
+  const fadeMs = Math.max(120, control.radarFadeMs ?? 1200);
+  const rawMinAngle = control.radarMinAngle ?? 0;
+  const rawMaxAngle = control.radarMaxAngle ?? 180;
+  const minAngle = normalizeAngle(rawMinAngle);
+  const maxAngle = normalizeAngle(rawMaxAngle);
+  const fullRange = Math.abs(rawMaxAngle - rawMinAngle) >= 360 || (minAngle === maxAngle && rawMinAngle !== rawMaxAngle);
+  const maxDistance = Math.max(1, control.radarMaxDistance ?? 200);
+  const now = Date.now();
+  const latest = pings[pings.length - 1];
+  const visualRotation = control.rotation;
+  const visualMinAngle = normalizeAngle(minAngle + visualRotation);
+  const visualMaxAngle = normalizeAngle(maxAngle + visualRotation);
+  const middleAngle = midpointAngle(minAngle, maxAngle);
+  const sweepAngle = (latest?.angle ?? middleAngle) + visualRotation;
+  const visiblePings = preview
+    ? [{ id: 'preview', angle: middleAngle, distance: maxDistance * 0.62, createdAt: now }]
+    : pings.filter((ping) => now - ping.createdAt <= fadeMs);
+  const showLabels = !fullRange;
+  const labelFontSize = Math.max(8, Math.min(12, Math.min(width, height) * 0.16));
+  const cx = 0;
+  const cy = 0;
+  const radius = 1;
+  const viewBox = fullRange
+    ? { x: -1.12, y: -1.12, width: 2.24, height: 2.24 }
+    : fittedSectorViewBox(visualMinAngle, visualMaxAngle);
+  const sector = fullRange ? '' : sectorPath(cx, cy, radius, visualMinAngle, visualMaxAngle);
+  const minLabel = formatAngle(rawMinAngle);
+  const maxLabel = formatAngle(rawMaxAngle);
+  const labelPositions = showLabels
+    ? radarLabelPositions(visualMinAngle, visualMaxAngle, viewBox, width, height, minLabel, maxLabel, labelFontSize)
+    : null;
+
+  useEffect(() => {
+    if (preview || pings.length === 0) return undefined;
+    const timer = window.setInterval(() => setTick((value) => value + 1), 120);
+    return () => window.clearInterval(timer);
+  }, [fadeMs, pings.length, preview]);
+
+  const sweep = polarPoint(cx, cy, radius, sweepAngle);
+
+  return (
+    <div className="control-radar" style={{ width: '100%', height: '100%' }}>
+      <svg
+        width={width}
+        height={height}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        {fullRange ? (
+          <circle className="radar-sector-fill" cx={cx} cy={cy} r={radius} />
+        ) : (
+          <path className="radar-sector-fill" d={sector} />
+        )}
+        {[0.25, 0.5, 0.75, 1].map((fraction) => (
+          fullRange ? (
+            <circle key={fraction} className="radar-ring" cx={cx} cy={cy} r={radius * fraction} />
+          ) : (
+            <path
+              key={fraction}
+              className="radar-ring"
+              d={arcPath(cx, cy, radius * fraction, visualMinAngle, visualMaxAngle)}
+            />
+          )
+        ))}
+        {!fullRange && <RadarBoundary cx={cx} cy={cy} radius={radius} angle={visualMinAngle} />}
+        {!fullRange && <RadarBoundary cx={cx} cy={cy} radius={radius} angle={visualMaxAngle} />}
+        <line className="radar-sweep" x1={cx} y1={cy} x2={sweep.x} y2={sweep.y} />
+        {visiblePings.map((ping) => {
+          const age = preview ? 0 : now - ping.createdAt;
+          const opacity = Math.max(0, 1 - age / fadeMs);
+          const distance = Math.max(0, Math.min(maxDistance, ping.distance));
+          const point = polarPoint(cx, cy, radius * (distance / maxDistance), ping.angle + visualRotation);
+          return (
+            <circle
+              key={ping.id}
+              className="radar-ping"
+              cx={point.x}
+              cy={point.y}
+              r={Math.max(0.025, Math.min(viewBox.width, viewBox.height) * 0.025)}
+              opacity={opacity}
+            />
+          );
+        })}
+      </svg>
+      {showLabels && labelPositions && (
+        <>
+          <span
+            className="radar-angle-label"
+            style={{ left: labelPositions.min.x, top: labelPositions.min.y, fontSize: labelFontSize }}
+          >
+            {minLabel}
+          </span>
+          <span
+            className="radar-angle-label"
+            style={{ left: labelPositions.max.x, top: labelPositions.max.y, fontSize: labelFontSize }}
+          >
+            {maxLabel}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RadarBoundary({ cx, cy, radius, angle }: { cx: number; cy: number; radius: number; angle: number }) {
+  const point = polarPoint(cx, cy, radius, angle);
+  return <line className="radar-boundary" x1={cx} y1={cy} x2={point.x} y2={point.y} />;
+}
+
+function polarPoint(cx: number, cy: number, radius: number, angle: number): { x: number; y: number } {
+  const radians = ((normalizeAngle(angle) - 90) * Math.PI) / 180;
+  return {
+    x: cx + Math.cos(radians) * radius,
+    y: cy + Math.sin(radians) * radius,
+  };
+}
+
+function sectorPath(cx: number, cy: number, radius: number, startAngle: number, endAngle: number): string {
+  const start = polarPoint(cx, cy, radius, startAngle);
+  const end = polarPoint(cx, cy, radius, endAngle);
+  const largeArc = sectorSpan(startAngle, endAngle) > 180 ? 1 : 0;
+  return `M ${cx} ${cy} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
+}
+
+function arcPath(cx: number, cy: number, radius: number, startAngle: number, endAngle: number): string {
+  const start = polarPoint(cx, cy, radius, startAngle);
+  const end = polarPoint(cx, cy, radius, endAngle);
+  const largeArc = sectorSpan(startAngle, endAngle) > 180 ? 1 : 0;
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`;
+}
+
+function sectorSpan(startAngle: number, endAngle: number): number {
+  const start = normalizeAngle(startAngle);
+  const end = normalizeAngle(endAngle);
+  const span = end >= start ? end - start : 360 - start + end;
+  return span === 0 ? 360 : span;
+}
+
+function fittedSectorViewBox(startAngle: number, endAngle: number): { x: number; y: number; width: number; height: number } {
+  const points = [
+    { x: 0, y: 0 },
+    polarPoint(0, 0, 1, startAngle),
+    polarPoint(0, 0, 1, endAngle),
+  ];
+  for (const angle of [0, 90, 180, 270]) {
+    if (angleInSector(angle, startAngle, endAngle)) {
+      points.push(polarPoint(0, 0, 1, angle));
+    }
+  }
+  const minX = Math.min(...points.map((p) => p.x));
+  const maxX = Math.max(...points.map((p) => p.x));
+  const minY = Math.min(...points.map((p) => p.y));
+  const maxY = Math.max(...points.map((p) => p.y));
+  const width = Math.max(0.1, maxX - minX);
+  const height = Math.max(0.1, maxY - minY);
+  const pad = Math.max(width, height) * 0.24;
+  return {
+    x: minX - pad,
+    y: minY - pad,
+    width: width + pad * 2,
+    height: height + pad * 2,
+  };
+}
+
+function angleInSector(angle: number, startAngle: number, endAngle: number): boolean {
+  const start = normalizeAngle(startAngle);
+  const target = normalizeAngle(angle);
+  const span = sectorSpan(startAngle, endAngle);
+  const offset = normalizeAngle(target - start);
+  return offset >= 0 && offset <= span;
+}
+
+function radarLabelPositions(
+  minAngle: number,
+  maxAngle: number,
+  viewBox: { x: number; y: number; width: number; height: number },
+  width: number,
+  height: number,
+  minText: string,
+  maxText: string,
+  fontSize: number,
+): { min: { x: number; y: number }; max: { x: number; y: number } } {
+  const labelRadius = 1.1;
+  const minPoint = polarPoint(0, 0, labelRadius, minAngle);
+  const maxPoint = polarPoint(0, 0, labelRadius, maxAngle);
+  return {
+    min: clampedLabelPosition(minPoint, viewBox, width, height, minText, fontSize),
+    max: clampedLabelPosition(maxPoint, viewBox, width, height, maxText, fontSize),
+  };
+}
+
+function pointToPixel(
+  point: { x: number; y: number },
+  viewBox: { x: number; y: number; width: number; height: number },
+  width: number,
+  height: number,
+): { x: number; y: number } {
+  return {
+    x: ((point.x - viewBox.x) / viewBox.width) * width,
+    y: ((point.y - viewBox.y) / viewBox.height) * height,
+  };
+}
+
+function clampedLabelPosition(
+  point: { x: number; y: number },
+  viewBox: { x: number; y: number; width: number; height: number },
+  width: number,
+  height: number,
+  text: string,
+  fontSize: number,
+): { x: number; y: number } {
+  const px = pointToPixel(point, viewBox, width, height);
+  const labelW = Math.max(10, text.length * fontSize * 0.62);
+  const labelH = fontSize;
+  const inset = 7;
+  return {
+    x: clamp(px.x, labelW / 2 + inset, Math.max(labelW / 2 + inset, width - labelW / 2 - inset)),
+    y: clamp(px.y, labelH / 2 + inset, Math.max(labelH / 2 + inset, height - labelH / 2 - inset)),
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function formatAngle(angle: number): string {
+  return `${Math.round(angle)}`;
+}
+
+function normalizeAngle(angle: number): number {
+  if (!Number.isFinite(angle)) return 0;
+  return ((angle % 360) + 360) % 360;
+}
+
+function midpointAngle(minAngle: number, maxAngle: number): number {
+  const min = normalizeAngle(minAngle);
+  const max = normalizeAngle(maxAngle);
+  const span = max >= min ? max - min : 360 - min + max;
+  return normalizeAngle(min + span / 2);
 }
 
 /** Label content: horizontal text, or an upright top-to-bottom character stack. */

@@ -1,6 +1,6 @@
 // Shared domain types for the Pico Kontrol Panel app.
 
-export type ControlType = 'button' | 'slider';
+export type ControlType = 'button' | 'slider' | 'toggle' | 'radar';
 export type Rotation = 0 | 90 | 180 | 270;
 export type SliderRecenter = 'none' | 'bottom' | 'middle' | 'top';
 
@@ -24,6 +24,18 @@ export interface Control {
   sliderMin?: number;
   sliderMax?: number;
   sliderRecenter?: SliderRecenter;
+  toggleInitial?: boolean;
+  radarMinAngle?: number;
+  radarMaxAngle?: number;
+  radarMaxDistance?: number;
+  radarFadeMs?: number;
+}
+
+export interface RadarPing {
+  id: string;
+  angle: number;
+  distance: number;
+  createdAt: number;
 }
 
 export function isPlaced(c: Control): boolean {

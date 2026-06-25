@@ -2,7 +2,7 @@ import type React from 'react';
 import { useMemo, useRef, useState } from 'react';
 import { Glyph } from '../assets/icons';
 import { AddModal } from './AddModal';
-import { controlLabelFontSize, SliderVisual } from './controls/PlayControls';
+import { controlLabelFontSize, RadarVisual, SliderVisual } from './controls/PlayControls';
 import { useElementSize } from '../lib/useElementSize';
 import {
   computeGeometry,
@@ -324,6 +324,19 @@ export function EditCanvas() {
                       >
                         {c.name}
                       </div>
+                    ) : c.type === 'toggle' ? (
+                      <div
+                        className="control-toggle on"
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          fontSize: controlLabelFontSize(c.name, rect.width, rect.height),
+                        }}
+                      >
+                        <span>{c.name}</span>
+                      </div>
+                    ) : c.type === 'radar' ? (
+                      <RadarVisual control={c} pings={[]} width={rect.width} height={rect.height} preview />
                     ) : (
                       <div
                         className="control-slider"

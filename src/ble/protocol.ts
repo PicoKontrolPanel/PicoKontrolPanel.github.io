@@ -12,6 +12,8 @@ export interface ProtocolEvents {
   onProgress?: (value: number, label: string) => void;
   onLog?: (level: LogLevel, message: string) => void;
   onDisconnect?: () => void;
+  onRadar?: (name: string, angle: number, distance: number) => void;
+  onToggleState?: (name: string, value: boolean) => void;
 }
 
 export type HandshakeResult =
@@ -99,6 +101,7 @@ export class PicoProtocol {
   private controlPumpActive = false;
   private pendingButtons: string[] = [];
   private pendingSliders = new Map<string, string>();
+  private pendingToggles = new Map<string, string>();
   private expectingDisconnect = false;
   private busy = false;
   private fsCapabilities: BleFilesystemCapabilities | null = null;
@@ -130,6 +133,7 @@ export class PicoProtocol {
     if (busy) {
       this.pendingButtons = [];
       this.pendingSliders.clear();
+      this.pendingToggles.clear();
       return;
     }
     this.pumpControls();
@@ -186,6 +190,10 @@ export class PicoProtocol {
 
     if (line.startsWith('ERR')) {
       this.log('error', line);
+    } else if (line.startsWith('radar,')) {
+      this.handleRadarLine(line);
+    } else if (line.startsWith('toggle_state,')) {
+      this.handleToggleStateLine(line);
     } else if (line.startsWith('ACK') || line === 'LAYOUT_SAVED' || line.startsWith('READY')) {
       this.log('success', line);
     } else {
@@ -440,7 +448,23 @@ export class PicoProtocol {
 
     const lines = controls.map((c) => {
       const n = (v: number | null) => (v === null ? 'n' : String(v));
-      return `update,${c.type},${c.name},${n(c.centerX2)},${n(c.centerY2)},${n(c.spanX)},${n(c.spanY)},${c.rotation}`;
+      const base = `update,${c.type},${c.name},${n(c.centerX2)},${n(c.centerY2)},${n(c.spanX)},${n(c.spanY)},${c.rotation}`;
+      if (c.type === 'slider') {
+        return `${base},${c.sliderMin ?? 0},${c.sliderMax ?? 100},${c.sliderRecenter ?? 'none'}`;
+      }
+      if (c.type === 'toggle') {
+        return `${base},${c.toggleInitial ? 1 : 0}`;
+      }
+      if (c.type === 'radar') {
+        return [
+          base,
+          c.radarMinAngle ?? 0,
+          c.radarMaxAngle ?? 180,
+          c.radarMaxDistance ?? 200,
+          c.radarFadeMs ?? 1200,
+        ].join(',');
+      }
+      return base;
     });
     lines.push('__END__');
 
@@ -466,6 +490,27 @@ export class PicoProtocol {
           ...(Number.isFinite(size) && size >= 0 ? { size } : {}),
         };
       });
+  }
+
+  private handleRadarLine(line: string): void {
+    const parts = line.split(',');
+    if (parts.length < 4) return;
+    const name = parts[1]?.trim();
+    const angle = parseFloat(parts[2] ?? '');
+    const distance = parseFloat(parts[3] ?? '');
+    if (!name || !Number.isFinite(angle) || !Number.isFinite(distance)) return;
+    this.events.onRadar?.(name, angle, distance);
+    this.log('info', `rx: ${line}`);
+  }
+
+  private handleToggleStateLine(line: string): void {
+    const parts = line.split(',');
+    if (parts.length < 3) return;
+    const name = parts[1]?.trim();
+    const valueRaw = parseInt(parts[2] ?? '', 10);
+    if (!name || !Number.isFinite(valueRaw)) return;
+    this.events.onToggleState?.(name, valueRaw === 1);
+    this.log('info', `rx: ${line}`);
   }
 
   async readText(path: string, onProgress?: FileReadProgress, signal?: AbortSignal): Promise<string> {
@@ -748,6 +793,12 @@ export class PicoProtocol {
     this.pumpControls();
   }
 
+  enqueueToggle(name: string, value: boolean): void {
+    if (this.busy) return;
+    this.pendingToggles.set(name, `toggle,${name}:${value ? 1 : 0}`);
+    this.pumpControls();
+  }
+
   private pumpControls(): void {
     if (this.controlPumpActive || this.busy || !this.transport.connected) return;
     this.controlPumpActive = true;
@@ -779,14 +830,24 @@ export class PicoProtocol {
     if (button) return button;
 
     const nextSlider = this.pendingSliders.entries().next();
-    if (nextSlider.done) return null;
-    const [name, line] = nextSlider.value;
-    this.pendingSliders.delete(name);
-    return line;
+    if (!nextSlider.done) {
+      const [name, line] = nextSlider.value;
+      this.pendingSliders.delete(name);
+      return line;
+    }
+
+    const nextToggle = this.pendingToggles.entries().next();
+    if (!nextToggle.done) {
+      const [name, line] = nextToggle.value;
+      this.pendingToggles.delete(name);
+      return line;
+    }
+
+    return null;
   }
 
   private hasPendingControls(): boolean {
-    return this.pendingButtons.length > 0 || this.pendingSliders.size > 0;
+    return this.pendingButtons.length > 0 || this.pendingSliders.size > 0 || this.pendingToggles.size > 0;
   }
 
   // ---- teardown ---------------------------------------------------------
@@ -875,8 +936,8 @@ export function parseLayout(lines: string[]): Control[] {
     if (!line || line.startsWith('#VERSION') || line === '__END__') continue;
     const parts = line.split(',');
     if (parts.length < 7) continue;
-    const [type, name, x, y, w, h, r, minRaw, maxRaw, recenterRaw] = parts;
-    if (type !== 'button' && type !== 'slider') continue;
+    const [type, name, x, y, w, h, r, aRaw, bRaw, cRaw, dRaw] = parts;
+    if (type !== 'button' && type !== 'slider' && type !== 'toggle' && type !== 'radar') continue;
     if (byName.has(name)) continue; // keep first per name
 
     const toNum = (s: string): number | null => {
@@ -885,11 +946,16 @@ export function parseLayout(lines: string[]): Control[] {
       return Number.isNaN(v) ? null : v;
     };
     const rot = (parseInt(r, 10) || 0) as Rotation;
-    const sliderMin = minRaw !== undefined ? parseInt(minRaw, 10) : 0;
-    const sliderMax = maxRaw !== undefined ? parseInt(maxRaw, 10) : 100;
-    const recenter = (['none', 'bottom', 'middle', 'top'].includes(recenterRaw ?? '')
-      ? recenterRaw
+    const sliderMin = aRaw !== undefined ? parseInt(aRaw, 10) : 0;
+    const sliderMax = bRaw !== undefined ? parseInt(bRaw, 10) : 100;
+    const recenter = (['none', 'bottom', 'middle', 'top'].includes(cRaw ?? '')
+      ? cRaw
       : 'none') as SliderRecenter;
+    const toggleInitial = aRaw !== undefined ? parseInt(aRaw, 10) === 1 : false;
+    const radarMinAngle = aRaw !== undefined ? parseFloat(aRaw) : 0;
+    const radarMaxAngle = bRaw !== undefined ? parseFloat(bRaw) : 180;
+    const radarMaxDistance = cRaw !== undefined ? parseFloat(cRaw) : 200;
+    const radarFadeMs = dRaw !== undefined ? parseInt(dRaw, 10) : 1200;
 
     byName.set(name, {
       type,
@@ -904,6 +970,19 @@ export function parseLayout(lines: string[]): Control[] {
             sliderMin: Number.isFinite(sliderMin) ? sliderMin : 0,
             sliderMax: Number.isFinite(sliderMax) ? sliderMax : 100,
             sliderRecenter: recenter,
+          }
+        : {}),
+      ...(type === 'toggle'
+        ? {
+            toggleInitial,
+          }
+        : {}),
+      ...(type === 'radar'
+        ? {
+            radarMinAngle: Number.isFinite(radarMinAngle) ? radarMinAngle : 0,
+            radarMaxAngle: Number.isFinite(radarMaxAngle) ? radarMaxAngle : 180,
+            radarMaxDistance: Number.isFinite(radarMaxDistance) && radarMaxDistance > 0 ? radarMaxDistance : 200,
+            radarFadeMs: Number.isFinite(radarFadeMs) && radarFadeMs > 0 ? radarFadeMs : 1200,
           }
         : {}),
     });

@@ -3,6 +3,7 @@ import hcsr04Source from '../../firmware/hcsr04.py?raw';
 import neopixelSource from '../../firmware/neopixel.py?raw';
 import onboardLedMainSource from '../../firmware/OnboardLED/main.py?raw';
 import picoRoboticsSource from '../../firmware/PicoRobotics.py?raw';
+import radarControlMainSource from '../../firmware/RadarControl/main.py?raw';
 import tankControlMainSource from '../../firmware/TankControl/main.py?raw';
 
 export interface RuntimeFile {
@@ -37,6 +38,14 @@ export const REQUIRED_RUNTIME_FILES: RuntimeFile[] = [
     description: 'Startprogram til robotbil med to motor-slidere.',
     kind: 'program',
     content: tankControlMainSource,
+  },
+  {
+    id: 'program:radar-control',
+    path: '/main.py',
+    label: 'RadarControl/main.py',
+    description: 'Startprogram til radar med servo, afstandssensor og scan-toggle.',
+    kind: 'program',
+    content: radarControlMainSource,
   },
   {
     id: 'library:ble-peripheral',

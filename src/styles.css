@@ -1079,6 +1079,92 @@ button:disabled {
   background: var(--red-dark);
 }
 
+.control-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--white);
+  color: var(--red);
+  border: 2px solid var(--red);
+  border-radius: 18px;
+  font-weight: 800;
+  text-align: center;
+  padding: 8px;
+  box-shadow: 0 4px 10px rgba(198, 80, 78, 0.22);
+  overflow: hidden;
+}
+
+.control-toggle.on {
+  background: var(--red);
+  color: var(--white);
+  box-shadow: 0 4px 12px rgba(198, 80, 78, 0.4);
+}
+
+.control-toggle:active {
+  transform: scale(0.98);
+}
+
+.control-radar {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid var(--red);
+  border-radius: 18px;
+  background: var(--white);
+  box-shadow: 0 4px 10px rgba(198, 80, 78, 0.18);
+}
+
+.control-radar svg {
+  display: block;
+}
+
+.control-radar rect {
+  fill: var(--white);
+}
+
+.radar-sector-fill {
+  fill: rgba(198, 80, 78, 0.08);
+  stroke: none;
+}
+
+.radar-ring,
+.radar-boundary {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}
+
+.radar-boundary {
+  stroke: var(--red-dark);
+  stroke-width: 2px;
+}
+
+.radar-sweep {
+  stroke: var(--red);
+  stroke-width: 3px;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.radar-ping {
+  fill: var(--red);
+  stroke: var(--red);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.radar-angle-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: var(--red-dark);
+  font-weight: 900;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
 .control-slider {
   background: var(--white);
   border: 2px solid var(--red);
@@ -1087,6 +1173,8 @@ button:disabled {
 }
 
 .control.colliding .control-button,
+.control.colliding .control-toggle,
+.control.colliding .control-radar,
 .control.colliding .control-slider {
   background: var(--disabled);
   border-color: var(--disabled);
