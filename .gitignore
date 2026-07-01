@@ -1,0 +1,19 @@
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Temporary files
+*.log
+*.tmp
+tmp/
+temp/
+
+# Development files do not belong in this public deployment repo
+node_modules/
+src/
+docs/
+dist/
+.env
+.env.*
