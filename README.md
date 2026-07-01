@@ -1,4 +1,4 @@
-# Pico Kontrol Panel Public Site
+﻿# Pico Kontrol Panel Public Site
 
 This repository is the public GitHub Pages deployment repository for Pico
 Kontrol Panel.
@@ -38,7 +38,7 @@ public visitor downloads:
 
 The current intentionally public download is:
 
-- `firmware/micropython/RPI_PICO_W.uf2`
+- MicroPython UF2 files are downloaded from official MicroPython links and are not bundled in this repository.
 
 ## What Does Not Belong Here
 
