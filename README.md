@@ -40,6 +40,16 @@ The current intentionally public download is:
 
 - MicroPython UF2 files are downloaded from official MicroPython links and are not bundled in this repository.
 
+## License
+
+This public deployment repository is not open source. The generated Pico
+Kontrol Panel site files are public so GitHub Pages can serve the website, but
+reuse, redistribution, modification, or republishing is not permitted without
+separate written permission. See `LICENSE`.
+
+Bundled third-party software remains under its own license terms. See
+`THIRD_PARTY_NOTICES.md`.
+
 ## What Does Not Belong Here
 
 Do not add these to this public repository:

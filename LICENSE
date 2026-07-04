@@ -1,0 +1,27 @@
+Pico Kontrol Panel Public Site License
+
+Copyright (c) 2026 Pico Kontrol Panel contributors.
+All rights reserved.
+
+This repository contains the generated public GitHub Pages deployment for
+Pico Kontrol Panel. It is made public so the website can be served, inspected,
+and cached by browsers.
+
+Permission is granted to access and use the hosted website as provided by the
+copyright holder.
+
+No permission is granted to copy, redistribute, publish, sublicense, sell,
+modify, or create derivative works from this repository or its contents, except
+where required for normal browser use of the hosted website or where separate
+written permission has been granted by the copyright holder.
+
+Third-party components included in this repository remain governed by their own
+licenses. See THIRD_PARTY_NOTICES.md for notices that apply to bundled
+third-party software.
+
+THE WEBSITE AND REPOSITORY CONTENTS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE WEBSITE OR REPOSITORY
+CONTENTS.
