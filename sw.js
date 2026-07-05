@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pico-kontrol-panel-v7';
+const CACHE_NAME = 'pico-kontrol-panel-v8';
 const APP_SHELL = [
   './',
   './index.html',
@@ -11,6 +11,16 @@ const APP_SHELL = [
   './micropython/micropython.mjs',
   './micropython/micropython.wasm',
 ];
+
+// Cross-origin isolation headers. GitHub Pages cannot set response headers, so
+// the service worker adds them to every same-origin response. This makes the
+// page cross-origin isolated, which is required for SharedArrayBuffer (used by
+// interactive input() in Browser-MicroPython).
+const COI_HEADERS = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -39,12 +49,29 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, './index.html'));
+    event.respondWith(withCoiHeaders(networkFirst(request, './index.html')));
     return;
   }
 
-  event.respondWith(cacheFirst(request));
+  event.respondWith(withCoiHeaders(cacheFirst(request)));
 });
+
+async function withCoiHeaders(responsePromise) {
+  const response = await responsePromise;
+  // Can only rebuild same-origin, non-opaque responses.
+  if (!response || response.type === 'opaque' || response.status === 0) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(COI_HEADERS)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 async function networkFirst(request, fallbackUrl) {
   const cache = await caches.open(CACHE_NAME);
