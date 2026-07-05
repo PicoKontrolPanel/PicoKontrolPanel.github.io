@@ -1,6 +1,6 @@
 {
   "name": "Pico Kontrol Panel",
-  "short_name": "Pico Kontrol",
+  "short_name": "Pico Kontrol Panel",
   "description": "Bluetooth control panel for Raspberry Pi Pico W projects.",
   "start_url": "./",
   "scope": "./",
