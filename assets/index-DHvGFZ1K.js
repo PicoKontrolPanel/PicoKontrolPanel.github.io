@@ -1171,7 +1171,7 @@ class PicoBluetooth:\r
             self._send_reliable_stream(["ACK:ping"])\r
 \r
         elif msg == "ACK:ownership":\r
-            print("Phone acknowledged ownership response")\r
+            print("App acknowledged ownership response")\r
             self._send_reliable_stream(["READY:permission"])\r
 \r
         elif msg == "ACK:permission":\r
