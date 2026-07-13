@@ -414,6 +414,10 @@ class PicoBluetooth:\r
         self._app_ready = False\r
         self._pending_telemetry = []\r
 \r
+        # ---- Outbound send serialization (see send_with_retry)\r
+        self._send_lock = False\r
+        self._send_backlog = []\r
+\r
         # ---- Files & buffers\r
         self._settings_file = SETTINGS_FILE\r
         self._layout_file = LAYOUT_FILE\r
@@ -828,6 +832,8 @@ class PicoBluetooth:\r
         self._out_reliable_waiting_ack = False\r
         self._out_reliable_stream_id = 0\r
         self._out_reliable_cache = {}\r
+        self._send_lock = False\r
+        self._send_backlog = []\r
 \r
     def _handle_disconnected(self, reason=""):\r
         self.connected = False\r
@@ -875,7 +881,39 @@ class PicoBluetooth:\r
                         print("Inbound processing error:", e)\r
 \r
     def send_with_retry(self, msg, max_attempts=3, chunk_size=20, chunk_gap_ms=3):\r
-        """Send an important protocol message, retrying on failure."""\r
+        """\r
+        Send an important protocol message, retrying on failure.\r
+\r
+        A single message's chunks must all reach the notify characteristic\r
+        before the next message's chunks start - otherwise the app's inbound\r
+        byte stream splices two messages together into one corrupted line\r
+        (see "Reliable stream framing" in the doc). This function is called\r
+        both from ordinary code (main.py telemetry, the main loop) and from\r
+        inside the BLE IRQ (handshake/reliable-stream replies), and handling\r
+        one inbound line can itself call back in here to send a reply while\r
+        an earlier call from somewhere else is still mid-transmission (e.g.\r
+        paused in one of the chunk_gap_ms sleeps below). The lock+backlog\r
+        make that safe: a reentrant call queues its message and returns\r
+        immediately instead of writing to the characteristic concurrently,\r
+        and whichever call already holds the lock drains the backlog - one\r
+        whole message at a time - before it returns.\r
+        """\r
+        if self._send_lock:\r
+            self._send_backlog.append((msg, max_attempts, chunk_size, chunk_gap_ms))\r
+            return True\r
+\r
+        self._send_lock = True\r
+        try:\r
+            result = self._transmit_with_retry(msg, max_attempts, chunk_size, chunk_gap_ms)\r
+            while self._send_backlog:\r
+                queued_msg, queued_attempts, queued_chunk_size, queued_gap = self._send_backlog.pop(0)\r
+                self._transmit_with_retry(queued_msg, queued_attempts, queued_chunk_size, queued_gap)\r
+            return result\r
+        finally:\r
+            self._send_lock = False\r
+\r
+    def _transmit_with_retry(self, msg, max_attempts, chunk_size, chunk_gap_ms):\r
+        """Actually writes msg to the notify characteristic, chunked, with retries. Only called while _send_lock is held - see send_with_retry."""\r
         for attempt in range(1, max_attempts + 1):\r
             try:\r
                 if not self.connected or self.conn_handle is None:\r
