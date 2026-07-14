@@ -293,12 +293,8 @@ TEXT_LINEBREAK = "\\x1e"   # ASCII Record Separator\r
 # _emit_telemetry), so a flood of sends from on_connect can't grow unbounded.\r
 MAX_PENDING_TELEMETRY  = 64\r
 \r
-# Retry budget for a "secure" (acknowledged) send - see _send_secure and the\r
-# doc's "Verified send" section. This blocks main.py's own loop rather than a\r
-# UI a student is staring at, so it can afford to be more patient than a\r
-# per-attempt handshake step would need to be; real BLE jitter (OS scheduling,\r
-# background-tab throttling) is why HANDSHAKE_TIMEOUT-style waits elsewhere in\r
-# this protocol are already generous rather than aggressive.\r
+# Retry budget for a secure=True send - see _send_secure and the doc's\r
+# "Verified send" section.\r
 SECURE_SEND_ATTEMPTS   = 3\r
 SECURE_SEND_TIMEOUT_MS = 600\r
 \r
@@ -450,12 +446,8 @@ class PicoBluetooth:\r
         self._out_reliable_next_stream_id = 1\r
         self._out_reliable_cache = {}\r
 \r
-        # ---- Verified send ("vsend,<id>,<payload>" / "ack:vsend,<id>"; see\r
-        # the doc's "Verified send" section). Used symmetrically: this device\r
-        # is a sender (secure=True on send_text/etc.) and a receiver (acked\r
-        # button/toggle commands from the app), each with its own id state.\r
-        # _in_irq is not connection-scoped (not reset in _reset_protocol_state\r
-        # - see _ble_irq's own try/finally instead).\r
+        # ---- Verified send (secure=True); see the doc's "Verified send"\r
+        # section. _in_irq isn't connection-scoped - see _ble_irq.\r
         self._in_irq = False\r
         self._vsend_next_id = 1\r
         self._vsend_ack_id = None\r
@@ -876,14 +868,9 @@ class PicoBluetooth:\r
             print("Failed to restart advertising:", e)\r
 \r
     def _ble_irq(self, event, data):\r
-        # Marks the whole synchronous call chain below - including\r
-        # on_connect/on_button/on_slider/on_toggle/on_joystick/on_dpad, all\r
-        # invoked from here - as "inside the BLE callback". A secure=True\r
-        # send blocks polling for an ack that can only arrive via another\r
-        # call to this same callback, which can't happen while this one is\r
-        # still on the stack; _send_secure checks this flag to fail fast\r
-        # with a friendly message instead of always timing out silently.\r
-        # See the doc's "Verified send" section.\r
+        # _in_irq covers on_connect/on_button/on_slider/on_toggle/on_joystick/\r
+        # on_dpad too (all invoked below) - see _send_secure and the doc's\r
+        # "Verified send" section for why that matters.\r
         self._in_irq = True\r
         try:\r
             if event == _IRQ_CENTRAL_CONNECT:\r
@@ -920,23 +907,9 @@ class PicoBluetooth:\r
             self._in_irq = False\r
 \r
     def send_with_retry(self, msg, max_attempts=3, chunk_size=20, chunk_gap_ms=3):\r
-        """\r
-        Send an important protocol message, retrying on failure.\r
-\r
-        A single message's chunks must all reach the notify characteristic\r
-        before the next message's chunks start - otherwise the app's inbound\r
-        byte stream splices two messages together into one corrupted line\r
-        (see "Reliable stream framing" in the doc). This function is called\r
-        both from ordinary code (main.py telemetry, the main loop) and from\r
-        inside the BLE IRQ (handshake/reliable-stream replies), and handling\r
-        one inbound line can itself call back in here to send a reply while\r
-        an earlier call from somewhere else is still mid-transmission (e.g.\r
-        paused in one of the chunk_gap_ms sleeps below). The lock+backlog\r
-        make that safe: a reentrant call queues its message and returns\r
-        immediately instead of writing to the characteristic concurrently,\r
-        and whichever call already holds the lock drains the backlog - one\r
-        whole message at a time - before it returns.\r
-        """\r
+        """Sends msg on the notify characteristic, chunked, with retries.\r
+        Reentrant-safe via _send_lock/_send_backlog - see the doc's\r
+        "Outbound send serialization" note."""\r
         if self._send_lock:\r
             self._send_backlog.append((msg, max_attempts, chunk_size, chunk_gap_ms))\r
             return True\r
@@ -1055,22 +1028,15 @@ class PicoBluetooth:\r
             return\r
 \r
         if msg.startswith("ack:vsend,"):\r
-            # An ack for one of THIS device's own secure sends (see\r
-            # _send_secure). Independent of the vsend branch below, which is\r
-            # this device acting as a RECEIVER of the app's secure sends.\r
+            # Ack for our own _send_secure call - see the doc's "Verified send" section.\r
             id_str = msg[len("ack:vsend,"):]\r
             if id_str.isdigit():\r
                 self._vsend_ack_id = int(id_str)\r
             return\r
 \r
         if msg.startswith("vsend,"):\r
-            # A secure send FROM the app (e.g. an acked button/toggle\r
-            # command). Ack immediately - even a duplicate - then dispatch\r
-            # the inner payload exactly like an ordinary line, skipping it\r
-            # only if it's a retry of the id already processed (see the\r
-            # doc's "Verified send" section for why one last-processed id is\r
-            # enough: the sender never has more than one vsend outstanding\r
-            # per direction at a time).\r
+            # A secure send FROM the app (e.g. an acked button/toggle command).\r
+            # Ack immediately, then dispatch, deduped by id - see the doc.\r
             parsed = _split_or_none(msg[len("vsend,"):], ",", 2)\r
             if parsed is not None and parsed[0].isdigit():\r
                 vsend_id = int(parsed[0])\r
@@ -1741,16 +1707,8 @@ class PicoBluetooth:\r
 \r
     # -------------------- Verified send (secure=True) --------------------\r
     def _send_secure(self, line, attempts=SECURE_SEND_ATTEMPTS, timeout_ms=SECURE_SEND_TIMEOUT_MS):\r
-        """Blocks the calling code until the app confirms it received \`line\`,\r
-        or every attempt is exhausted; returns True/False. See send_text's\r
-        docstring and the doc's "Verified send" section.\r
-\r
-        Only safe to call from the main loop. on_connect/on_button/on_slider/\r
-        on_toggle/on_joystick/on_dpad all run inside the BLE callback itself\r
-        (see _ble_irq), which can't receive the ack this polls for while it's\r
-        still running - calling from there always fails fast below instead of\r
-        silently spinning through the whole timeout budget.\r
-        """\r
+        """Blocks (main loop only - see the doc's "Verified send" section)\r
+        until the app acks \`line\` or every attempt is exhausted; True/False."""\r
         if self._in_irq:\r
             print("ble.send(secure=True) blev kaldt fra en callback (fx on_button) - det virker kun fra hovedloopet.")\r
             return False\r
@@ -1797,11 +1755,7 @@ class PicoBluetooth:\r
 \r
     # -------------------- External hooks --------------------\r
     def send_radar(self, name, angle, distance_cm, secure=False):\r
-        """Send one radar telemetry sample to the app: radar,<NAME>,<ANGLE>,<DISTANCE_CM>.\r
-        secure=True waits for the app to confirm receipt - see send_text's\r
-        docstring. Avoid it on a fast-repeating sweep: it blocks the main loop\r
-        briefly on every call, and a sweep supersedes its own old readings\r
-        anyway."""\r
+        """radar,<NAME>,<ANGLE>,<DISTANCE_CM>. secure=True: see send_text's docstring."""\r
         if not self.connected:\r
             return False\r
         try:\r
@@ -1817,8 +1771,7 @@ class PicoBluetooth:\r
             return False\r
 \r
     def send_toggle_state(self, name, value, secure=False):\r
-        """Send current toggle state to the app: toggle_state,<NAME>,<0|1>.\r
-        secure=True waits for the app to confirm receipt - see send_text's docstring."""\r
+        """toggle_state,<NAME>,<0|1>. secure=True: see send_text's docstring."""\r
         if not self.connected:\r
             return False\r
         try:\r
@@ -1833,8 +1786,7 @@ class PicoBluetooth:\r
             return False\r
 \r
     def send_slider_state(self, name, value, secure=False):\r
-        """Send current slider state to the app: slider_state,<NAME>,<VALUE>.\r
-        secure=True waits for the app to confirm receipt - see send_text's docstring."""\r
+        """slider_state,<NAME>,<VALUE>. secure=True: see send_text's docstring."""\r
         if not self.connected:\r
             return False\r
         try:\r
@@ -1849,15 +1801,10 @@ class PicoBluetooth:\r
             return False\r
 \r
     def send_plot(self, name, value, label=None, secure=False):\r
-        """Appends one sample to a plot control's history (never coalesced,\r
-        unlike send_text/send_radar/send_toggle_state - see the doc). "\\\\n" in\r
-        label becomes a line break in the app's axis label (up to 3 lines).\r
-        secure=True waits for the app to confirm receipt - see send_text's\r
-        docstring. Do NOT use it in a bulk-history resend loop (e.g. the\r
-        Graphs example's reconnect resend): waiting for confirmation on every\r
-        one of e.g. 100 old points would make the resend far slower for no\r
-        benefit, since a lost old point isn't worth retrying like a live\r
-        alert would be."""\r
+        """Appends one sample (never coalesced, unlike the others - see the\r
+        doc). label supports \\\\n (up to 3 lines). secure=True: see\r
+        send_text's docstring - avoid it in a bulk resend loop (see the\r
+        Graphs example's send_gemt_historik)."""\r
         if not self.connected:\r
             return False\r
         try:\r
@@ -1876,8 +1823,7 @@ class PicoBluetooth:\r
             return False\r
 \r
     def send_plot_clear(self, name, secure=False):\r
-        """Clears a plot control's history in the app: plot_clear,<NAME>.\r
-        secure=True waits for the app to confirm receipt - see send_text's docstring."""\r
+        """plot_clear,<NAME>. secure=True: see send_text's docstring."""\r
         if not self.connected:\r
             return False\r
         try:\r
@@ -1891,16 +1837,12 @@ class PicoBluetooth:\r
             return False\r
 \r
     def send_text(self, name, message, secure=False):\r
-        """Sends text,<NAME>,<MESSAGE>. "\\\\n" in message becomes a line break.\r
+        """text,<NAME>,<MESSAGE>. "\\\\n" becomes a line break.\r
 \r
-        secure=True blocks the main loop until the app confirms receipt (a\r
-        few retries with a short wait each - see the doc's "Verified send"\r
-        section) instead of firing-and-forgetting, and returns True/False.\r
-        Only call this from the main loop - never from on_connect/on_button/\r
-        on_slider/on_toggle/on_joystick/on_dpad. Those callbacks run inside\r
-        the BLE callback itself, which can't deliver the confirmation this\r
-        waits for while it's still running; calling it from there always\r
-        fails fast with a printed warning instead of hanging."""\r
+        secure=True waits (main loop only) for the app to confirm receipt\r
+        instead of firing-and-forgetting - see the doc's "Verified send"\r
+        section. Never call it from on_connect/on_button/on_slider/\r
+        on_toggle/on_joystick/on_dpad - see _send_secure."""\r
         if not self.connected:\r
             return False\r
         try:\r
